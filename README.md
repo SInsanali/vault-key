@@ -28,17 +28,31 @@
 - **Item levels:** set one item's level, or match it to your character.
 - **Backpack and bank:** move items between them, and set either one's size.
 - **Character:** level, money, Eridium, Seraph crystals, Torgue tokens, ammo upgrades and gun slots.
+- **Unlocks:** True and Ultimate Vault Hunter Mode, and ammo upgrades.
 - **Any save file:** open one from anywhere and export a character to a file.
 
-![The Overview tab](docs/screenshots/overview.png)
+## A look around
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/backpack.png" alt="Backpack and bank"><br><sub><b>Backpack and bank</b></sub></td>
+    <td width="50%"><img src="docs/screenshots/overview.png" alt="Overview tab"><br><sub><b>Overview</b>: level, currencies and capacity</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/unlocks.png" alt="Unlocks tab"><br><sub><b>Unlocks</b>: game modes and ammo</sub></td>
+    <td><img src="docs/screenshots/backups.png" alt="Backups tab"><br><sub><b>Backups</b>: restore any earlier save</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/save.png" alt="Save review"><br><sub><b>Review</b> every change before it's written</sub></td>
+    <td><img src="docs/screenshots/settings.png" alt="Settings"><br><sub><b>Settings</b>: locks, colors and file locations</sub></td>
+  </tr>
+</table>
 
 ## Built to be safe
 
 Every save is backed up first, and every change is shown before it's written. Characters
 from the game start locked until you unlock them, and Vault Key won't save while
 Borderlands 2 is running.
-
-![Reviewing a change before saving](docs/screenshots/save.png)
 
 ## Four themes
 
