@@ -1,91 +1,77 @@
-# Vault Key
+<p align="center">
+  <img src="docs/screenshots/icon.png" width="64" height="64" alt="">
+</p>
 
-A save editor for Borderlands 2 on Windows. Change a character's level, money and gear, and
-duplicate an item so you can hand the copy to a friend in co-op. Your friend needs nothing
-installed.
+<h1 align="center">Vault Key</h1>
 
-![The Gear tab](docs/screenshots/gear.png)
+<p align="center">
+  A save editor for Borderlands 2 on PC.<br>
+  Level, money and gear, plus item duplication for sharing loot with friends.
+</p>
 
-![Reviewing changes before saving](docs/screenshots/save.png)
+<p align="center">
+  <a href="https://github.com/SInsanali/vault-key/releases/latest"><img src="https://img.shields.io/github/v/release/SInsanali/vault-key?style=flat-square&color=FFC72C&labelColor=1B140D" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-3FB7FF?style=flat-square&labelColor=132C4A" alt="Windows 10 and 11">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-B97CFF?style=flat-square&labelColor=24183D" alt="MIT license"></a>
+</p>
 
-The pictures above use stand-in drawings. The app shows each item's real name, card and
-picture, read from your own copy of the game.
+<p align="center">
+  <a href="https://github.com/SInsanali/vault-key/releases/latest"><b>Download</b></a>
+</p>
 
-## Download and install
+![Vault Key's Gear tab](docs/screenshots/gear.png)
 
-Get `VaultKey-Setup-<version>.exe` from the
-[latest release](https://github.com/SInsanali/vault-key/releases/latest) and run it. It
-installs for your Windows account only and does not ask for administrator rights.
+## Features
 
-The installer is not code-signed, so Windows SmartScreen may show "Windows protected your PC"
-the first time. Choose **More info**, then **Run anyway**.
+- **Gear:** every item with its real name, card and picture, read from your copy of the game.
+- **Duplicate** any weapon, shield, grenade mod or class mod.
+- **Item levels:** set one item's level, or match it to your character.
+- **Backpack and bank:** move items between them, and set either one's size.
+- **Character:** level, money, Eridium, Seraph crystals, Torgue tokens, ammo upgrades and gun slots.
+- **Any save file:** open one from anywhere and export a character to a file.
 
-Vault Key is then in the Start menu. To keep it on the taskbar, right-click it in the Start
-menu and choose **Pin to taskbar**.
+![The Overview tab](docs/screenshots/overview.png)
 
-If you would rather not install anything, download `VaultKey-<version>-portable.zip`, unpack
-it anywhere, and run `vault-key.exe`.
+## Built to be safe
 
-`SHA256SUMS.txt` in each release lists the checksums of both downloads.
+Every save is backed up first, and every change is shown before it's written. Characters
+from the game start locked until you unlock them, and Vault Key won't save while
+Borderlands 2 is running.
 
-## What it needs
+![Reviewing a change before saving](docs/screenshots/save.png)
 
-- Windows 10 or 11, 64-bit.
-- Borderlands 2 for PC on Steam, installed on the same PC. Item names, cards and pictures
-  come from the game's own files. Without the game, Vault Key still opens save files, but
-  items have no names.
-- The Microsoft Edge WebView2 Runtime. Windows 11 and current Windows 10 already have it. The
-  installer adds it if it is missing.
+## Four themes
 
-## What it does
+![Yellow, blue, purple and red themes](docs/screenshots/themes.png)
 
-- Edits level, money, Eridium, Seraph crystals, Torgue tokens, backpack and bank size, ammo
-  upgrades and weapon slots.
-- Duplicates an item, sets one item's level, and moves items between the backpack and the bank.
-- Opens a save file from anywhere, such as one a friend sent you, and exports a character to
-  a file.
+## Install
 
-## How it keeps your saves safe
+Download `VaultKey-Setup-0.9.0.exe` from the
+[latest release](https://github.com/SInsanali/vault-key/releases/latest) and run it. No
+administrator rights needed. A portable zip is there too.
 
-- Characters you made in the game start locked. Vault Key does not change a character's file
-  until you unlock that character. A locked character can still be copied to a new slot and
-  edited there.
-- Before every save, Vault Key makes a backup of the file. The Backups tab restores any of them.
-- It does not save while the game is running.
-- You review every change before it is written, and the written file is read back and checked.
-- The game's own files are only ever read.
+The installer isn't code-signed yet, so SmartScreen may warn you the first time. Choose
+**More info → Run anyway**.
 
-If Steam Cloud asks which save to keep after you edit one, choose the local files.
+**Requirements:** Windows 10 or 11 (64-bit) and Borderlands 2 installed through Steam. Without
+the game, saves still open, but items show no names or pictures.
 
-## Uninstall
-
-Use **Settings → Apps → Installed apps → Vault Key → Uninstall**, or the uninstaller in the
-program folder. This removes the program and its shortcuts.
-
-The uninstaller asks whether to also delete Vault Key's own data folder
-(`%LOCALAPPDATA%\VaultKey`). That folder holds your settings and the backups of your saves,
-and it is kept unless you say otherwise. Your game saves are never touched.
+If Steam Cloud asks which save to keep after an edit, pick the local one.
 
 ## Known gaps
 
-- Class mods for Gaige and Krieg have no pictures. Story and mission items have none by design.
-- Skins and heads show "No game data".
-- Some items from add-on content are marked "Unverified" and cannot be duplicated yet.
-- Moving an item from the bank to the backpack has not been checked in the game yet. Moving
-  to the bank, item levels and ammo upgrades have.
-- Golden Keys and Badass tokens cannot be edited yet.
+- Golden Keys and Badass tokens can't be edited yet.
+- Some add-on items are marked "Unverified" and can't be duplicated yet.
+- Gaige and Krieg class mods, skins and heads have no pictures.
 
-## Problems
+Found a bug? [Open an issue](https://github.com/SInsanali/vault-key/issues). The error log's
+location is under **Settings → Where things are**. Please don't attach save files to a public
+issue: they contain your Steam ID.
 
-Vault Key writes errors to a log file. Settings shows where it is, under "Where things are".
-When you [report a problem](https://github.com/SInsanali/vault-key/issues), include the last
-lines of that log. Please do not attach save files to a public issue: they hold your Steam ID.
+## Building
 
-## Building from source
-
-Vault Key is a Rust workspace with a web UI in `ui/`, shown in a WebView2 window. It builds
-with stable Rust for the `x86_64-pc-windows-gnullvm` target. `.github/actions/toolchain` shows
-the exact setup; `scripts/` holds the helpers for building from WSL.
+Rust workspace with a WebView2 front end in `ui/`, built for `x86_64-pc-windows-gnullvm`.
+See `.github/actions/toolchain` for the setup.
 
 ```
 cargo test --workspace
@@ -94,14 +80,10 @@ cargo build --release -p vault-key
 
 `packaging/package.ps1` builds the installer (Inno Setup 7) and the portable zip.
 
-Some comments in the code point to notes under `docs/research` and `docs/format`. Those are
-working notes and are not part of this repository.
+## License
 
-## License and credits
+[MIT](LICENSE). Bundled fonts and crates are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Vault Key is released under the [MIT License](LICENSE). The fonts and Rust crates it includes
-are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-Vault Key is a fan-made tool. It is not affiliated with or endorsed by Gearbox Software or
-2K. Borderlands is a trademark of its owners. Vault Key ships no game files: names, cards
-and pictures are read from your own installed copy of the game.
+Vault Key is a fan project, not affiliated with Gearbox Software or 2K. It ships no game
+files; names and pictures are read from your own installed copy.
