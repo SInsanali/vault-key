@@ -19,7 +19,7 @@
   <a href="https://github.com/SInsanali/vault-key/releases/latest"><b>Download</b></a>
 </p>
 
-![Vault Key's Gear tab](docs/screenshots/gear.png)
+![Vault Key's Gear tab](docs/screenshots/gear-tab.png)
 
 ## Features
 
@@ -43,7 +43,7 @@
     <td><img src="docs/screenshots/backups.png" alt="Backups tab"><br><sub><b>Backups</b>: restore any earlier save</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/save.png" alt="Save review"><br><sub><b>Review</b> every change before it's written</sub></td>
+    <td><img src="docs/screenshots/save-review.png" alt="Save review"><br><sub><b>Review</b> every change before it's written</sub></td>
     <td><img src="docs/screenshots/settings.png" alt="Settings"><br><sub><b>Settings</b>: locks, colors and file locations</sub></td>
   </tr>
 </table>
