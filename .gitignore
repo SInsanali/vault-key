@@ -1,0 +1,11 @@
+# Build output
+/target/
+/dist/
+
+# Save files never belong in the repo. Tests use local copies in fixtures/local.
+fixtures/local/
+*.sav
+profile.bin
+
+.claude/settings.local.json
+.DS_Store

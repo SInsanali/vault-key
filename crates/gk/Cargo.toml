@@ -1,0 +1,10 @@
+[package]
+name = "gk"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Vault Key developer command-line tool."
+
+[dependencies]
+savekit = { path = "../savekit" }
+gkcore = { path = "../gkcore" }

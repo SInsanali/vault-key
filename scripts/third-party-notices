@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Write THIRD_PARTY_NOTICES.md: the fonts and every Rust crate that is built into the
+Windows program, with their license texts. Run it from WSL after changing dependencies:
+
+    scripts/third-party-notices
+
+It asks cargo which crates the app links (normal dependencies only, for the Windows target)
+and reads each crate's own license files from cargo's download folder.
+"""
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+TARGET = "x86_64-pc-windows-gnullvm"
+APP = "vault-key"
+LICENSE_FILE = re.compile(r"^(licen[sc]e|copying|notice|unlicense)", re.IGNORECASE)
+
+
+def wsl_path(windows_path: str) -> pathlib.Path:
+    return pathlib.Path(subprocess.run(["wslpath", windows_path], check=True, capture_output=True, text=True).stdout.strip())
+
+
+def main() -> int:
+    raw = subprocess.run(
+        [str(REPO / "scripts" / "cargo"), "metadata", "--format-version", "1", "--filter-platform", TARGET, "--locked"],
+        check=True, capture_output=True, text=True, cwd=REPO,
+    ).stdout
+    meta = json.loads(raw)
+    packages = {p["id"]: p for p in meta["packages"]}
+    nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
+    root = next(p["id"] for p in meta["packages"] if p["name"] == APP)
+
+    # Walk the normal (not build, not dev) dependencies from the app.
+    linked, queue = set(), [root]
+    while queue:
+        current = queue.pop()
+        if current in linked:
+            continue
+        linked.add(current)
+        for dep in nodes[current]["deps"]:
+            if any(kind["kind"] is None for kind in dep["dep_kinds"]):
+                queue.append(dep["pkg"])
+
+    members = set(meta["workspace_members"])
+    crates = sorted((packages[i] for i in linked if i not in members), key=lambda p: (p["name"].lower(), p["version"]))
+
+    # Many crates carry the same license text word for word: print each text once.
+    texts: dict[str, list[str]] = {}
+    rows = []
+    for crate in crates:
+        label = f'{crate["name"]} {crate["version"]}'
+        rows.append((label, crate.get("license") or "see its license file", crate.get("repository") or ""))
+        folder = wsl_path(crate["manifest_path"]).parent
+        for file in sorted(folder.iterdir()):
+            if file.is_file() and LICENSE_FILE.match(file.name):
+                text = file.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").strip()
+                texts.setdefault(text, []).append(f"{label} ({file.name})")
+
+    out = [
+        "# Third-party notices",
+        "",
+        "Vault Key includes the work listed here. Each item is used under its own license.",
+        "",
+        "## Fonts",
+        "",
+        "### Bangers",
+        "",
+        "```text",
+        (REPO / "ui" / "fonts" / "Bangers-OFL.txt").read_text(encoding="utf-8").replace("\r\n", "\n").strip(),
+        "```",
+        "",
+        "### Barlow Condensed",
+        "",
+        "```text",
+        (REPO / "ui" / "fonts" / "BarlowCondensed-OFL.txt").read_text(encoding="utf-8").replace("\r\n", "\n").strip(),
+        "```",
+        "",
+        "## Rust crates",
+        "",
+        "| Crate | License | Source |",
+        "|---|---|---|",
+    ]
+    out += [f"| {label} | {license_} | {source} |" for label, license_, source in rows]
+    out += ["", "## License texts", ""]
+    for text, users in sorted(texts.items(), key=lambda item: item[1][0].lower()):
+        out += ["Used by: " + ", ".join(users), "", "```text", text.replace("```", "'''"), "```", ""]
+    (REPO / "THIRD_PARTY_NOTICES.md").write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+    print(f"{len(rows)} crates, {len(texts)} distinct license texts")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

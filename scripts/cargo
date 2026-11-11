@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Run the Windows-side cargo from WSL. Vault Key is a Windows app, and this WSL distro has
+# no C linker, so the Windows toolchain builds and tests everything.
+#
+# Toolchain: stable-x86_64-pc-windows-gnullvm, linked with its bundled rust-lld, with the
+# llvm-dlltool that scripts/setup-windows-toolchain.sh prepares. No Visual Studio needed.
+# Build output goes to the Windows drive: building over the WSL share is slow.
+set -euo pipefail
+profile="$(wslpath "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')")"
+local_app="$profile/AppData/Local/vault-key"
+dlltool="$(wslpath -w "$local_app/tools/llvm-dlltool.exe")"
+[ -f "$local_app/tools/llvm-dlltool.exe" ] || { echo "missing llvm-dlltool: run scripts/setup-windows-toolchain.sh" >&2; exit 1; }
+
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$local_app/target-llvm}"
+export RUSTUP_TOOLCHAIN="stable-x86_64-pc-windows-gnullvm"
+export CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER="rust-lld"
+# Statically link the runtime (no libunwind.dll to ship) and let lld link straight against
+# the system DLLs for the few import libraries the toolchain does not bundle.
+export CARGO_ENCODED_RUSTFLAGS="$(printf '%s\x1f' \
+  -C linker-flavor=ld.lld \
+  -C link-self-contained=yes \
+  -C target-feature=+crt-static \
+  -C 'link-arg=-LC:\Windows\System32' \
+  -C "dlltool=$dlltool" | sed 's/\x1f$//')"
+export WSLENV="CARGO_TARGET_DIR/p:RUSTUP_TOOLCHAIN:CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER:CARGO_ENCODED_RUSTFLAGS:GK_GAME_DATA/p:GK_SAVEDATA_DIR/p:GK_DATA_DIR/p:GK_UI_DIR/p:GK_SELFTEST:${WSLENV:-}"
+exec "$profile/.cargo/bin/cargo.exe" "$@"

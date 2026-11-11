@@ -1,0 +1,8 @@
+[package]
+name = "lzo1x"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "LZO1X decompressor and a literal-run-only compressor."
+
+[dependencies]

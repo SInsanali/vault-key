@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Screenshot the UI in headless Edge (the same engine as the app's WebView2), using the mock
+# API in ui/dev. For working on the UI; touches no save folder.
+#
+#   scripts/ui-shot <out.png> [query] [width] [height]
+#   scripts/ui-shot /tmp/gear.png "screen=gear" 1600 1000
+#
+# `query` is added after "?mock&" (see ui/dev/scenes.js for the screens).
+# --allow-file-access-from-files lets the page load its JavaScript modules from file://.
+set -euo pipefail
+out="${1:?usage: scripts/ui-shot <out.png> [query] [width] [height]}"
+query="${2:-screen=gear}"
+width="${3:-1600}"
+height="${4:-1000}"
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+edge="/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+[ -x "$edge" ] || { echo "Microsoft Edge not found at $edge" >&2; exit 1; }
+mkdir -p "$(dirname "$out")"
+url="file:$(wslpath -w "$repo/ui/index.html" | sed 's|\\|/|g')?mock&$query"
+timeout 60 "$edge" --headless=new --disable-gpu --hide-scrollbars --allow-file-access-from-files \
+  --window-size="$width,$height" \
+  --screenshot="$(wslpath -w "$out")" "$url" < /dev/null > /dev/null 2>&1
+[ -s "$out" ] && echo "$out"

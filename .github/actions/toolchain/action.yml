@@ -1,0 +1,28 @@
+name: Rust toolchain
+description: >
+  Sets up the toolchain Vault Key is built and tested with: stable Rust for
+  x86_64-pc-windows-gnullvm, linked with its bundled rust-lld. The same setup as
+  scripts/setup-windows-toolchain.sh and scripts/cargo, so a release is built the way the
+  app is built during development.
+runs:
+  using: composite
+  steps:
+    - shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal -c llvm-tools
+        rustup toolchain install stable-x86_64-pc-windows-gnullvm --profile minimal -c clippy
+        # LLVM's llvm-ar acts as llvm-dlltool when run under that name.
+        $sysroot = (rustc +stable-x86_64-pc-windows-gnu --print sysroot).Trim()
+        $bin = Join-Path $sysroot "lib\rustlib\x86_64-pc-windows-gnu\bin"
+        $tools = Join-Path $env:RUNNER_TEMP "gk-tools"
+        New-Item -ItemType Directory -Force $tools | Out-Null
+        Copy-Item (Join-Path $bin "llvm-ar.exe") (Join-Path $tools "llvm-dlltool.exe")
+        Copy-Item (Join-Path $bin "libgcc_s_seh-1.dll"), (Join-Path $bin "libwinpthread-1.dll") $tools
+        $dlltool = Join-Path $tools "llvm-dlltool.exe"
+        if ($dlltool -match "\s") { throw "The tools folder has a space in its path: $dlltool" }
+        $flags = "-C linker-flavor=ld.lld -C link-self-contained=yes -C target-feature=+crt-static -C link-arg=-LC:\Windows\System32 -C dlltool=$dlltool"
+        "RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnullvm" >> $env:GITHUB_ENV
+        "CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER=rust-lld" >> $env:GITHUB_ENV
+        "RUSTFLAGS=$flags" >> $env:GITHUB_ENV
+        "CARGO_TERM_COLOR=always" >> $env:GITHUB_ENV

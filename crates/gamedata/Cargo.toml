@@ -1,0 +1,9 @@
+[package]
+name = "gamedata"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Reads item names, rarity and gear classes from the user's own game install (read-only)."
+
+[dependencies]
+lzo1x = { path = "../lzo1x" }

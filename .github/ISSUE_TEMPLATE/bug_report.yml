@@ -1,0 +1,38 @@
+name: Bug report
+description: Something in Vault Key does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do **not** attach save files here. Issues are public, and a save file holds your Steam ID.
+  - type: input
+    id: version
+    attributes:
+      label: Vault Key version
+      description: Shown in Settings, under "Where things are".
+      placeholder: "0.9.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Error log
+      description: >
+        Paste the last lines of the error log, if there is one. Settings shows where it is
+        ("Error log"). Replace your Windows user name in any paths.
+      render: text

@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Run Vault Key's end-to-end self-test in the real app window, on a throwaway sandbox.
+#
+# It makes a fresh sandbox (a SaveData folder holding copies of the fixture save, and a data
+# folder), starts the app with GK_SELFTEST=1 pointed at it, waits for the app to close by
+# itself, prints the log, and checks that the fixture copies in slots 1 and 2 were not changed.
+# The real save folder is never used: both sandbox folders are always set, and the app
+# itself refuses to self-test without them.
+#
+#   scripts/app-selftest            build, then test the built-in UI
+#   scripts/app-selftest --live     serve the UI from the repo's ui/ folder (no rebuild needed for UI edits)
+#   scripts/app-selftest --keep     leave the sandbox in place afterwards (it is always kept on a failure)
+#   scripts/app-selftest --release  test the optimised build (the one to hand out)
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+fixture="$repo/fixtures/local/win-throwaway-Save0001.sav"
+[ -f "$fixture" ] || { echo "no fixture save at $fixture" >&2; exit 1; }
+
+build_args=(--build-only)
+for arg in "$@"; do [ "$arg" = --release ] && build_args+=(--release); done
+exe="$("$repo/scripts/app" "${build_args[@]}" | tail -1)"
+
+temp="$(wslpath "$(cmd.exe /c 'echo %TEMP%' 2>/dev/null | tr -d '\r')")"
+sandbox="$(mktemp -d "$temp/gk-selftest-XXXXXX")"
+case "$sandbox" in *"My Games"*|*steamapps*) echo "refusing to use $sandbox" >&2; exit 1 ;; esac
+steam="$sandbox/SaveData/76561190000000000"
+mkdir -p "$steam" "$sandbox/VaultKey"
+cp "$fixture" "$steam/Save0001.sav"
+cp "$fixture" "$steam/Save0002.sav"
+# A folder outside the save folder, for "Open a save file…" and "Export to file…".
+mkdir -p "$sandbox/Outside"
+cp "$fixture" "$sandbox/Outside/Friend.sav"
+
+export GK_SAVEDATA_DIR="$sandbox/SaveData"
+export GK_DATA_DIR="$sandbox/VaultKey"
+export GK_SELFTEST=1
+export WSLENV="GK_SAVEDATA_DIR/p:GK_DATA_DIR/p:GK_SELFTEST:${WSLENV:-}"
+keep=0
+for arg in "$@"; do
+  case "$arg" in
+    --live) export GK_UI_DIR="$repo/ui"; export WSLENV="GK_UI_DIR/p:$WSLENV" ;;
+    --keep) keep=1 ;;
+    --release) ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+echo "sandbox: $sandbox"
+status=0
+# Copies of Vault Key the user already has open. They are never touched: only a copy this
+# script started, and that is still running afterwards, is stopped.
+vault_key_pids() {
+  tasklist.exe /FO CSV /NH /FI "IMAGENAME eq vault-key.exe" 2>/dev/null | tr -d '\r' | awk -F'","' '/vault-key/ { print $2 }' | sort
+}
+already=$(vault_key_pids)
+timeout 180 "$exe" < /dev/null || status=$?
+echo "app exit status: $status"
+
+# The app must not be left running.
+for pid in $(vault_key_pids); do
+  if ! printf '%s\n' "$already" | grep -qx "$pid"; then
+    echo "the self-test's vault-key.exe (PID $pid) was still running; stopping it" >&2
+    taskkill.exe /F /PID "$pid" > /dev/null 2>&1 || true
+    status=1
+  fi
+done
+
+log="$sandbox/VaultKey/selftest.log"
+echo "--- $log"
+if [ -f "$log" ]; then cat "$log"; else echo "(no log was written)"; fi
+echo "---"
+same_bytes() { [ "$(sha256sum < "$1")" = "$(sha256sum < "$2")" ]; }
+if same_bytes "$fixture" "$steam/Save0001.sav" && same_bytes "$fixture" "$steam/Save0002.sav"; then
+  echo "the read-only characters in the sandbox (slots 1 and 2) are byte-for-byte unchanged"
+else
+  echo "FAIL: a read-only character in the sandbox was changed" >&2
+  status=1
+fi
+if same_bytes "$fixture" "$sandbox/Outside/Friend.sav"; then
+  echo "the file opened from outside the save folder (Outside/Friend.sav) is byte-for-byte unchanged"
+else
+  echo "FAIL: the file opened from outside the save folder was changed" >&2
+  status=1
+fi
+ls -la "$steam" "$sandbox/Outside"
+grep -q "^RESULT: PASS" "$log" 2>/dev/null || status=1
+if [ "$status" = 0 ]; then
+  echo "SELF-TEST PASSED"
+  if [ "$keep" = 0 ]; then
+    # Only ever the folder made above. (The window's helper processes can hold files for a
+    # moment after it closes; whatever is left then is in the temp folder.)
+    case "$sandbox" in "$temp"/gk-selftest-*) rm -rf "$sandbox" 2>/dev/null || true ;; esac
+  fi
+else
+  echo "SELF-TEST FAILED (sandbox kept at $sandbox)"
+fi
+exit "$status"

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Build the release program, then the installer and the portable zip, from WSL.
+#
+#   scripts/package            output goes to dist/release/
+#
+# Needs Inno Setup 7 unpacked at %LOCALAPPDATA%\vault-key\tools\innosetup (its installer's
+# portable mode: /PORTABLE=1 /CURRENTUSER /DIR=<that folder>). GitHub Actions builds the
+# real releases the same way (.github/workflows/release.yml); this is for trying it here.
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+exe="$("$repo/scripts/app" --build-only --release | tail -1)"
+profile="$(wslpath "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')")"
+iscc="$profile/AppData/Local/vault-key/tools/innosetup/ISCC.exe"
+[ -f "$iscc" ] || { echo "Inno Setup was not found at $iscc" >&2; exit 1; }
+# Windows tools work on a Windows folder; the results are copied back afterwards.
+temp="$(wslpath "$(cmd.exe /c 'echo %TEMP%' 2>/dev/null | tr -d '\r')")"
+out="$(mktemp -d "$temp/gk-release-XXXXXX")"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$repo/packaging/package.ps1")" \
+  -ExeDir "$(wslpath -w "$(dirname "$exe")")" -OutDir "$(wslpath -w "$out")" -Iscc "$(wslpath -w "$iscc")"
+mkdir -p "$repo/dist/release"
+cp "$out"/* "$repo/dist/release/"
+rm -rf "$out"
+ls -la "$repo/dist/release"

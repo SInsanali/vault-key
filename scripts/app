@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Build Vault Key, put WebView2Loader.dll beside the program, and start it.
+#
+#   scripts/app              build (debug) and run
+#   scripts/app --release    build optimised and run
+#   scripts/app --build-only [--release]   build and stop; prints the program's path
+#
+# These variables are passed through to the app when set:
+#   GK_SAVEDATA_DIR   use this SaveData folder instead of the game's real one
+#   GK_DATA_DIR       keep Vault Key's settings and backups here (pair it with the above)
+#   GK_GAME_DATA      the game's install folder, if it is not in a default Steam library
+#   GK_UI_DIR         serve the UI live from this folder (the repo's ui/) instead of the built-in copy
+#   GK_SELFTEST       run the self-test and quit (needs both sandbox folders; see scripts/app-selftest)
+#
+# With none of them set, the app works on the real save folder: that is what it is for.
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+profile_dir=debug
+run=1
+build_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --release) profile_dir=release; build_args+=(--release) ;;
+    --build-only) run=0 ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+"$repo/scripts/cargo" build -p vault-key "${build_args[@]}"
+
+profile="$(wslpath "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')")"
+target="${CARGO_TARGET_DIR:-$profile/AppData/Local/vault-key/target-llvm}"
+out="$target/$profile_dir"
+exe="$out/vault-key.exe"
+[ -f "$exe" ] || { echo "the build did not produce $exe" >&2; exit 1; }
+
+# The window needs WebView2Loader.dll next to the program. The build unpacks one.
+loader="$(ls -t "$out"/build/webview2-com-sys-*/out/x64/WebView2Loader.dll 2>/dev/null | head -1 || true)"
+[ -n "$loader" ] || { echo "WebView2Loader.dll was not found under $out/build" >&2; exit 1; }
+[ -f "$out/WebView2Loader.dll" ] && [ ! "$loader" -nt "$out/WebView2Loader.dll" ] || cp "$loader" "$out/WebView2Loader.dll"
+
+if [ "$run" = 0 ]; then
+  echo "$exe"
+  exit 0
+fi
+export WSLENV="GK_SAVEDATA_DIR/p:GK_DATA_DIR/p:GK_GAME_DATA/p:GK_UI_DIR/p:GK_SELFTEST:${WSLENV:-}"
+exec "$exe"

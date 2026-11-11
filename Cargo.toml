@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["crates/lzo1x", "crates/savekit", "crates/gamedata", "crates/gkcore", "crates/gk", "crates/gamemesh", "crates/app"]
+
+[workspace.package]
+version = "0.9.0"
+edition = "2021"
+publish = false
+
+[profile.dev]
+opt-level = 1
+
+[profile.test]
+opt-level = 1
+
+# The build that is handed out: smaller and a little faster, at the cost of a slow build.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

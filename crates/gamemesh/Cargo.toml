@@ -1,0 +1,11 @@
+[package]
+name = "gamemesh"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Weapon pictures from the user's own game install (read-only): mesh and skin readers, a software renderer, a PNG writer."
+
+[dependencies]
+gamedata = { path = "../gamedata" }
+lzo1x = { path = "../lzo1x" }
+savekit = { path = "../savekit" }

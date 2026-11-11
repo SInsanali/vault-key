@@ -1,0 +1,17 @@
+[package]
+name = "vault-key"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Vault Key: the desktop app (a native window around the web UI in /ui)."
+
+[dependencies]
+serde_json = "1"
+tao = "0.34"
+wry = "0.53"
+gkcore = { path = "../gkcore" }
+savekit = { path = "../savekit" }
+gamedata = { path = "../gamedata" }
+gamemesh = { path = "../gamemesh" }
+rfd = { version = "0.15", default-features = false }
+raw-window-handle = "0.6"

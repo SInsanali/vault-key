@@ -1,0 +1,9 @@
+[package]
+name = "savekit"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Reads, edits and writes Borderlands 2 save files."
+
+[dependencies]
+lzo1x = { path = "../lzo1x" }

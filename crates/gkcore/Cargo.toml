@@ -1,0 +1,10 @@
+[package]
+name = "gkcore"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Vault Key's application core: save folder, sessions with staged edits, and the safe write path."
+
+[dependencies]
+savekit = { path = "../savekit" }
+gamedata = { path = "../gamedata" }

@@ -1,0 +1,145 @@
+name: Release
+
+# A tag such as v0.9.0 builds the program, the installer and the portable zip, checks the
+# installer on the runner, and publishes a GitHub Release with notes from CHANGELOG.md.
+# "Run workflow" does everything except publish: the files are kept as a workflow artifact.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  INNO_SETUP_VERSION: "7.1.1"
+  INNO_SETUP_SHA256: "8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0"
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/toolchain
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $line = Get-Content Cargo.toml | Where-Object { $_ -match '^version\s*=\s*"([^"]+)"' } | Select-Object -First 1
+          $version = [regex]::Match($line, '"([^"]+)"').Groups[1].Value
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$version") {
+            throw "The tag ${{ github.ref_name }} does not match version $version in Cargo.toml."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      - name: Build the program
+        shell: pwsh
+        run: |
+          cargo build --release --locked -p vault-key
+          # The window needs WebView2Loader.dll beside the program. The build unpacks one.
+          $loader = Get-ChildItem target\release\build\webview2-com-sys-*\out\x64\WebView2Loader.dll |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $loader) { throw "WebView2Loader.dll was not found under target\release\build." }
+          Copy-Item $loader.FullName target\release\
+
+      # Code signing is off until these secrets exist. Without a signature, Windows
+      # SmartScreen warns the first time the installer runs (the README says so).
+      # Not yet tried: check the action's current inputs before switching it on.
+      - name: Sign the program
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.SIGNING_PROFILE }}
+          files-folder: target\release
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $setup = Join-Path $env:RUNNER_TEMP "innosetup.exe"
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/is-$($env:INNO_SETUP_VERSION -replace '\.', '_')/innosetup-$env:INNO_SETUP_VERSION-x64.exe" -OutFile $setup
+          if ((Get-FileHash $setup -Algorithm SHA256).Hash -ne $env:INNO_SETUP_SHA256) { throw "The Inno Setup download does not match its checksum." }
+          $dir = Join-Path $env:RUNNER_TEMP "innosetup"
+          Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/PORTABLE=1", "/NOICONS", "/DIR=$dir" -Wait
+          "ISCC=$dir\ISCC.exe" >> $env:GITHUB_ENV
+
+      - name: Installer and portable zip
+        shell: pwsh
+        run: packaging\package.ps1 -ExeDir target\release -OutDir dist\release -Iscc $env:ISCC
+
+      - name: Sign the installer
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.SIGNING_PROFILE }}
+          files-folder: dist\release
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Checksums after signing
+        if: env.AZURE_CLIENT_ID != ''
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        shell: pwsh
+        run: |
+          $sums = Get-ChildItem dist\release -Include *.exe, *.zip -Recurse | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          }
+          [System.IO.File]::WriteAllText("dist\release\SHA256SUMS.txt", (($sums -join "`n") + "`n"))
+
+      - name: Check the installer
+        shell: pwsh
+        run: packaging\installer-check.ps1 -Setup dist\release\VaultKey-Setup-${{ steps.version.outputs.version }}.exe -Version ${{ steps.version.outputs.version }} -DeleteData
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VaultKey-${{ steps.version.outputs.version }}
+          path: dist/release/
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          # The notes are this version's section of CHANGELOG.md.
+          $notes = New-Object System.Collections.Generic.List[string]
+          $inside = $false
+          foreach ($line in Get-Content CHANGELOG.md) {
+            if ($line -match '^## ') {
+              if ($inside) { break }
+              $inside = $line -match ("^## " + [regex]::Escape($version) + "\b")
+              continue
+            }
+            if ($inside) { $notes.Add($line) }
+          }
+          if ($notes.Count -eq 0) { throw "CHANGELOG.md has no section for $version." }
+          $notes -join "`n" | Set-Content release-notes.md -Encoding utf8
+          gh release create "${{ github.ref_name }}" (Get-ChildItem dist\release -File).FullName --title "Vault Key $version" --notes-file release-notes.md --verify-tag
