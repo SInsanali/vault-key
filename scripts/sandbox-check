@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Tries the built installer in Windows Sandbox, a throwaway copy of Windows: runs
+# packaging/installer-check.ps1 there and takes screenshots of the installed app.
+#
+#   scripts/sandbox-check      uses dist/release from scripts/package; results go to dist/sandbox/
+#
+# Needs Windows Sandbox turned on (Windows Pro). Nothing on this PC is installed or changed.
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' "$repo/Cargo.toml" | head -1)"
+setup="$repo/dist/release/VaultKey-Setup-$version.exe"
+[ -f "$setup" ] || { echo "Missing $setup. Run scripts/package first." >&2; exit 1; }
+temp="$(wslpath "$(cmd.exe /c 'echo %TEMP%' 2>/dev/null | tr -d '\r')")"
+box="$(mktemp -d "$temp/vk-sandbox-XXXXXX")"
+cp "$setup" "$repo/packaging/installer-check.ps1" "$repo/packaging/sandbox-check.ps1" "$box/"
+cat > "$box/check.wsb" <<WSB
+<Configuration>
+  <MappedFolders>
+    <MappedFolder><HostFolder>$(wslpath -w "$box")</HostFolder><SandboxFolder>C:\\vk</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>
+  </MappedFolders>
+  <LogonCommand><Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\vk\\sandbox-check.ps1 -Version $version</Command></LogonCommand>
+</Configuration>
+WSB
+(cd "$box" && cmd.exe /c start "" check.wsb)
+echo "Windows Sandbox is starting; this takes a few minutes."
+for _ in $(seq 1 120); do
+  [ -f "$box/out/done.txt" ] && break
+  sleep 5
+done
+mkdir -p "$repo/dist/sandbox"
+rm -f "$repo/dist/sandbox/"*
+cp "$box/out/"* "$repo/dist/sandbox/" 2>/dev/null || true
+rm -rf "$box"
+grep -E '^(PASS|FAIL|ERROR|INSTALLER|SANDBOX)' "$repo/dist/sandbox/log.txt" 2>/dev/null || { echo "The sandbox did not finish." >&2; exit 1; }
+grep -q '^SANDBOX CHECK PASSED' "$repo/dist/sandbox/log.txt"

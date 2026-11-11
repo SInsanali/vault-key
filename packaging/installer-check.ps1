@@ -6,7 +6,7 @@
 # It installs for the current user, like a person would, so run it on a clean machine: a
 # GitHub runner or a virtual machine. -DeleteData also checks that the uninstaller can
 # delete the app's data folder. That folder holds backups of saves on a real PC, so the
-# switch is refused outside GitHub Actions.
+# switch is refused outside GitHub Actions and Windows Sandbox.
 param(
     [Parameter(Mandatory = $true)][string]$Setup,
     [Parameter(Mandatory = $true)][string]$Version,
@@ -15,8 +15,9 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-if ($DeleteData -and $env:GITHUB_ACTIONS -ne "true") {
-    throw "-DeleteData deletes the app's data folder and only runs in GitHub Actions."
+# WDAGUtilityAccount is the only user inside Windows Sandbox, which is wiped when closed.
+if ($DeleteData -and $env:GITHUB_ACTIONS -ne "true" -and $env:USERNAME -ne "WDAGUtilityAccount") {
+    throw "-DeleteData deletes the app's data folder and only runs in GitHub Actions or Windows Sandbox."
 }
 
 $failures = New-Object System.Collections.Generic.List[string]
