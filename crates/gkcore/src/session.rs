@@ -442,6 +442,12 @@ impl CharacterSession {
         }
     }
 
+    /// Refuses to write a character the game would "fix" on load: equipped gear raised
+    /// above the character's level. Every save path calls this before writing.
+    pub(crate) fn check_savable(&self) -> Result<()> {
+        changes::equipped_within_level(&self.replayed)
+    }
+
     /// What a file written from this session must satisfy.
     pub(crate) fn verification(&self) -> (Vec<Expectation>, Vec<Check>) {
         changes::verification(&self.original, &self.changes, &self.replayed)

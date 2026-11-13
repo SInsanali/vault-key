@@ -541,6 +541,33 @@ fn edit_error(error: SaveKitError) -> CoreError {
     }
 }
 
+/// Refuses a save that would leave equipped gear above the character's level because of a
+/// pending item-level change. The game can't use such gear: when it loads the save it takes
+/// every one of those items off, so equipped guns end up in the backpack. (Gear that was
+/// already like that in the original is left to the game; only Vault Key's changes count.)
+pub(crate) fn equipped_within_level(replayed: &Replay) -> Result<()> {
+    let level = replayed.doc.level();
+    let highest = replayed
+        .doc
+        .inventory()
+        .iter()
+        .filter(|e| e.location == ItemLocation::Equipped && !e.is_virtual)
+        .filter_map(|e| replayed.item_levels.iter().find(|(at, _)| *at == e.entry_ref).map(|(_, l)| i64::from(*l)))
+        .filter(|&item| item > level)
+        .max();
+    match highest {
+        None => Ok(()),
+        Some(item) => fail(
+            ErrorKind::InvalidValue,
+            format!(
+                "Nothing was saved: equipped gear would be level {item}, but the character is level {level}. \
+                 The game takes off any gear above your level when it loads, so your equipped guns would end up \
+                 in the backpack. Raise the character to level {item}, or set item levels to {level} or lower."
+            ),
+        ),
+    }
+}
+
 /// What the written file must satisfy, derived from the pending changes: expectations for
 /// the engine's verifier, and Vault Key's own checks for what the verifier cannot express.
 pub(crate) fn verification(
@@ -723,7 +750,7 @@ fn target_of(replayed: &Replay, id: u64, named: EntryRef) -> (EntryRef, Option<u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{echo_ref, sample_doc, weapon_ref, ITEM_CODE, WEAPON_CODE};
+    use crate::testutil::{echo_ref, equipped_doc, sample_doc, weapon_ref, ITEM_CODE, WEAPON_CODE};
     use savekit::FallbackGearClassifier;
 
     fn change(id: u64, edit: Edit) -> PendingChange {
@@ -792,6 +819,27 @@ mod tests {
         assert_eq!(got.created[1], (17, vec![EntryRef::new(field::WEAPONS, 1)]));
         assert_eq!(got.duplicate_sources, [(17, weapon_ref())]);
         assert_eq!(got.added.iter().map(|(_, n)| n).sum::<usize>(), 3);
+    }
+
+    #[test]
+    fn equipped_gear_above_the_character_level_is_not_saved() {
+        let check = |changes: &[PendingChange]| {
+            equipped_within_level(&replay(&equipped_doc(3), changes, &FallbackGearClassifier).unwrap())
+        };
+        // Items to 6 on a level-5 character: the game would take the gun off. Refused, and
+        // the message gives both numbers.
+        let error = check(&[change(1, Edit::ItemLevels { level: 6, force: true })]).unwrap_err();
+        assert!(error.message.contains("level 6") && error.message.contains("level 5"), "{}", error.message);
+        // One equipped item set above the level on its own: refused too.
+        assert!(check(&[change(1, Edit::ItemLevel { item: weapon_ref(), level: 6 })]).is_err());
+        // Raising the character as well, in either order, is fine.
+        assert!(check(&[change(1, Edit::Level(6)), change(2, Edit::ItemLevels { level: 6, force: true })]).is_ok());
+        assert!(check(&[change(1, Edit::ItemLevels { level: 6, force: true }), change(2, Edit::Level(6))]).is_ok());
+        // Matching the character, or going lower, is fine.
+        assert!(check(&[change(1, Edit::Level(9)), change(2, Edit::ItemLevels { level: 0, force: true })]).is_ok());
+        assert!(check(&[change(1, Edit::ItemLevels { level: 3, force: true })]).is_ok());
+        // Gear in the backpack may be above the level: the game leaves it there.
+        assert!(equipped_within_level(&replayed(&[change(1, Edit::ItemLevels { level: 50, force: true })]).unwrap()).is_ok());
     }
 
     #[test]
