@@ -250,8 +250,20 @@ export async function run({ state, actions }) {
       same(mine.length, 2, "cards showing this weapon's picture");
       same(mine[0].src, mine[1].src, "the copy's picture address");
 
-      // An item with no picture: a story item, or one from DLC (shields, grenade mods, class
-      // mods and relics of the base game have pictures).
+      // A piece of gear has a picture too, drawn in its own skin.
+      const gear = state.character.items.find((item) => !item.isWeapon && item.code && ["shield", "grenade-mod", "relic", "class-mod"].includes(item.category));
+      let gearNote = "no gear item to show";
+      if (gear) {
+        actions.selectItem(gear.ref);
+        const gearPicture = await until(() => {
+          const img = document.querySelector(".detail .gun-pic img");
+          return img && img.complete && img.naturalWidth > 0 && img.src.includes(encodeURIComponent(gear.code)) ? img : null;
+        }, `the ${gear.category}'s picture did not load`);
+        gearNote = `a ${gear.category} picture ${gearPicture.naturalWidth}×${gearPicture.naturalHeight}`;
+      }
+
+      // An item with no picture: a story or mission item, or a skin or head. (Weapons, shields,
+      // grenade mods, class mods and relics, the DLC's included, have pictures.)
       const other = state.character.items.find((item) => !item.isWeapon && item.code && !["shield", "grenade-mod", "relic", "class-mod"].includes(item.category));
       check(other, "no item without a picture");
       actions.selectItem(other.ref);
@@ -261,7 +273,7 @@ export async function run({ state, actions }) {
       same(none.getBoundingClientRect().height, picture.height + 6, "the placeholder's height");
       actions.selectItem(weapon.ref);
       actions.setEquippedOpen(false);
-      return `picture ${natural}, shown at ${Math.round(shown.width)}×${Math.round(shown.height)}; ${thumbs.length} card pictures; an item says "${why}"`;
+      return `picture ${natural}, shown at ${Math.round(shown.width)}×${Math.round(shown.height)}; ${thumbs.length} card pictures; ${gearNote}; an item says "${why}"`;
     });
 
     await step("the Gear screen is laid out inside the window", async () => {

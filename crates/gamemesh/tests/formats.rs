@@ -243,7 +243,7 @@ fn material_part_and_balance_read() {
     assert!(MaterialParameters::read(&pkg, "Nowhere").is_err());
 
     let look = PartLook::read(&pkg, &pkg.properties_of_export(index(&pkg, "Part")).unwrap());
-    assert_eq!(look, PartLook { fragments: vec!["FragA".into(), "FragB".into()], material: Some("Skin".into()) });
+    assert_eq!(look, PartLook { fragments: vec!["FragA".into(), "FragB".into()], material: Some("Skin".into()), glow: None });
     // A part that is not in gestalt mode shows nothing, whatever it names.
     assert_eq!(PartLook::read(&pkg, &pkg.properties_of_export(index(&pkg, "Skin")).unwrap()), PartLook::default());
 

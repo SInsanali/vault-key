@@ -1,8 +1,9 @@
-//! Weapon pictures from the user's own game install.
+//! Weapon and item pictures from the user's own game install.
 //!
-//! Reads the game's "gestalt" weapon meshes out of `Startup.upk` (read-only), picks the pieces
-//! a saved weapon's parts name, colours them from the weapon's own skin, and draws them with a
-//! small software renderer.
+//! Reads the game's "gestalt" meshes out of `Startup.upk` and each DLC's startup package
+//! (read-only), picks the pieces a saved weapon's or item's parts name, colours them from its
+//! own skin (the gun, item and relic materials each have their own layout), and draws them with
+//! a small software renderer. A class mod is one mesh with its own skin.
 //!
 //! - [`Pictures`]: the entry point for the app. An item code in, a PNG out.
 //! - [`WeaponSource`]: from a saved weapon's numbers to an [`Assembly`] of mesh fragments.

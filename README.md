@@ -93,7 +93,7 @@ administrator rights needed. Prefer not to install? Grab the portable zip instea
 
 - Golden Keys and Badass tokens can't be edited yet.
 - Some add-on items are marked "Unverified" and can't be duplicated yet.
-- Gaige and Krieg class mods, skins and heads have no pictures.
+- Skins and heads have no pictures.
 
 **Found a bug?** [Open an issue](https://github.com/SInsanali/vault-key/issues) and include
 the last lines of the error log (its location is under **Settings → Where things are**).

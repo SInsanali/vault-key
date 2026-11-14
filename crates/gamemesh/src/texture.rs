@@ -189,6 +189,18 @@ impl Texture {
 
     /// Decodes a mip. `package_dir` is the folder holding the package and its `.tfc` files;
     /// it is only read.
+    /// As [`Texture::decode`], looking for the `.tfc` cache in each of `dirs` in turn (a DLC
+    /// texture's cache is in that DLC's folder).
+    pub fn decode_from(&self, mip: &Mip, dirs: &[&Path]) -> Result<Pixels> {
+        let cache = self.cache_name.as_deref().unwrap_or("");
+        let dir = dirs
+            .iter()
+            .find(|dir| mip.inline.is_some() || dir.join(format!("{cache}.tfc")).is_file())
+            .or(dirs.first())
+            .ok_or_else(|| MeshError::Missing(format!("{}: a folder for its texture cache", self.path)))?;
+        self.decode(mip, dir)
+    }
+
     pub fn decode(&self, mip: &Mip, package_dir: &Path) -> Result<Pixels> {
         let data = match &mip.inline {
             Some(data) => data.clone(),

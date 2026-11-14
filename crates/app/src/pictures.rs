@@ -1,4 +1,4 @@
-//! Weapon pictures for the page: `gk://localhost/picture/<size>/<item code>`.
+//! Weapon and item pictures for the page: `gk://localhost/picture/<size>/<item code>`.
 //!
 //! The pictures are drawn by `gamemesh` from the user's own game install (read-only) and kept
 //! only in memory. One [`Service`] lives on a thread of its own, so drawing never holds up
@@ -69,7 +69,7 @@ impl Answer {
     fn refusal(error: &PictureError) -> Self {
         let status = match error {
             PictureError::BadCode => 400,
-            PictureError::NotAWeapon | PictureError::NothingToDraw | PictureError::DlcItem | PictureError::UnknownParts => 404,
+            PictureError::NotAWeapon | PictureError::NothingToDraw | PictureError::UnknownParts => 404,
             PictureError::GameData(_) => 503,
         };
         Self::sentence(status, error.message())
@@ -242,7 +242,6 @@ mod tests {
             self.drawn.fetch_add(1, Ordering::SeqCst);
             match code {
                 "item" => Err(PictureError::NotAWeapon),
-                "dlc" => Err(PictureError::DlcItem),
                 "parts" => Err(PictureError::UnknownParts),
                 "empty" => Err(PictureError::NothingToDraw),
                 "broken" => Err(PictureError::GameData("a mesh".into())),
@@ -333,7 +332,6 @@ mod tests {
         let (mut service, _, _) = service(10, 1000);
         for (code, status, error) in [
             ("item", 404, PictureError::NotAWeapon),
-            ("dlc", 404, PictureError::DlcItem),
             ("parts", 404, PictureError::UnknownParts),
             ("empty", 404, PictureError::NothingToDraw),
             ("broken", 503, PictureError::GameData("x".into())),

@@ -7,8 +7,8 @@ use gamedata::{GameInstall, ItemRefs};
 use savekit::{ItemBlob, ItemFields};
 
 use crate::error::MeshError;
-use crate::material::{GunSkin, SkinDetail};
-use crate::picture::weapon_scene;
+use crate::material::{GunSkin, RelicSkin, SkinDetail, RELIC_TEXTURE};
+use crate::picture::{face_camera, weapon_scene};
 use crate::png;
 use crate::render::{render, render_with, Image, View};
 use crate::texture::Pixels;
@@ -23,8 +23,6 @@ pub enum PictureError {
     NotAWeapon,
     /// A placeholder entry, or a weapon none of whose parts has a model.
     NothingToDraw,
-    /// A weapon from a DLC pack: not supported yet.
-    DlcItem,
     /// The weapon's type or some of its parts are not defined in the game files read.
     UnknownParts,
     /// A game file is missing, damaged or not laid out as expected. The text says which.
@@ -38,7 +36,6 @@ impl PictureError {
             Self::BadCode => "This is not a readable item code.",
             Self::NotAWeapon => "Story and mission items have no picture.",
             Self::NothingToDraw => "This item has no model to draw.",
-            Self::DlcItem => "Pictures of DLC items are not supported yet.",
             Self::UnknownParts => "The game files do not define some of this item's parts.",
             Self::GameData(_) => "A game file is missing or not as expected, so the picture could not be made.",
         }
@@ -140,7 +137,7 @@ impl TextureCache {
         }
         let texture = source.texture(path).ok_or_else(|| MeshError::Missing(format!("texture {path}")))?;
         let mip = texture.mip_for(size).ok_or_else(|| MeshError::Missing(format!("{path}: no mips")))?;
-        let pixels = Arc::new(texture.decode(mip, source.package_dir())?);
+        let pixels = Arc::new(texture.decode_from(mip, &source.texture_dirs(path))?);
         self.entries.push((path.to_string(), size, pixels.clone(), self.clock));
         // Over budget: drop the least recently used, but never what was just loaded.
         while self.entries.len() > 2 && self.bytes() > Pictures::TEXTURE_BUDGET {
@@ -155,9 +152,9 @@ impl TextureCache {
     }
 }
 
-/// Weapon pictures from the user's own game install. Opening reads `Startup.upk` once (the
-/// package is not kept); pictures then read only the texture cache file, and only for
-/// textures not already in memory.
+/// Weapon and item pictures from the user's own game install. Opening reads the base game's
+/// `Startup.upk` and each DLC's startup package once (the packages are not kept); pictures then
+/// read only the texture cache files, and only for textures not already in memory.
 ///
 /// Memory kept between calls: the weapon meshes and tables (about 10 MB) and at most
 /// [`Pictures::TEXTURE_BUDGET`] of decoded textures.
@@ -179,12 +176,13 @@ impl Pictures {
     /// Pattern and decal textures are read at up to this size (most are 256 px).
     const LAYER_TEXTURE_SIZE: u32 = 256;
 
-    /// Opens the game's startup package (read-only).
+    /// Opens the game's startup packages, the base game's and each DLC's (read-only).
     pub fn open(install: &GameInstall) -> Result<Self, PictureError> {
-        Self::open_package(&install.startup_package())
+        let source = WeaponSource::open_install(install).map_err(|e| PictureError::GameData(e.to_string()))?;
+        Ok(Self::new(source))
     }
 
-    /// As [`Pictures::open`], from the path of `Startup.upk`.
+    /// From the base game's `Startup.upk` alone: no DLC items.
     pub fn open_package(startup_package: &Path) -> Result<Self, PictureError> {
         let source = WeaponSource::open(startup_package).map_err(|e| PictureError::GameData(e.to_string()))?;
         Ok(Self::new(source))
@@ -243,9 +241,8 @@ impl Pictures {
     pub fn weapon_image(&mut self, item: &ItemRefs, width: u32, height: u32) -> Result<Image, PictureError> {
         match item.set {
             None => return Err(PictureError::BadCode),
-            Some(0) => {}
             Some(255) => return Err(PictureError::NothingToDraw),
-            Some(_) => return Err(PictureError::DlcItem),
+            Some(_) => {}
         }
         let assembly = self.source.assemble(item).map_err(|e| match e {
             MeshError::Missing(_) => PictureError::UnknownParts,
@@ -262,7 +259,10 @@ impl Pictures {
     pub fn assembly_image(&mut self, assembly: &crate::Assembly, width: u32, height: u32) -> Result<Image, PictureError> {
         let game_data = |e: MeshError| PictureError::GameData(e.to_string());
         let gestalt = self.source.gestalt(&assembly.gestalt).map_err(game_data)?;
-        let (scene, missing) = weapon_scene(gestalt, assembly);
+        let (mut scene, missing) = weapon_scene(gestalt, assembly);
+        if assembly.fragments().map(|(_, name)| name).eq([crate::weapon::WHOLE_MESH]) {
+            face_camera(&mut scene);
+        }
         if let Some(name) = missing.first() {
             return Err(PictureError::GameData(format!("{} has no fragment {name}", assembly.gestalt)));
         }
@@ -299,6 +299,14 @@ impl Pictures {
         };
 
         self.skin_problem = None;
+        // A relic has no material part: it glows in the colour its body part sets.
+        if let (None, Some(glow), false) = (&assembly.material, assembly.glow, self.style.colouring == Colouring::Plain) {
+            let texture = self.textures.get(&self.source, RELIC_TEXTURE, Self::LAYER_TEXTURE_SIZE);
+            if let Err(e) = &texture {
+                self.skin_problem = Some(e.to_string());
+            }
+            return Ok(render_with(&scene, &view, &RelicSkin::new(glow, texture.ok())));
+        }
         let detail = match self.style.colouring {
             Colouring::Plain => None,
             Colouring::Flat => Some(SkinDetail::Flat),
@@ -317,6 +325,17 @@ impl Pictures {
         })
     }
 
+    /// The mip to read a pattern at. A pattern is tiled many times across the item (12 to 30
+    /// times on shields and grenades); read at full size, each pixel of a small picture lands
+    /// on an unrelated texel and the pattern turns into glitter. A mip with about one texel per
+    /// pixel per tile averages it the way the game's own texture filtering does.
+    fn pattern_size(params: &crate::material::MaterialParameters, width: u32) -> u32 {
+        let scale = params.vector("p_PatternScalePosition").map_or(1.0, |s| s[0].abs().max(s[1].abs()));
+        let scale = if scale.is_finite() { scale.max(1.0) } else { 1.0 };
+        let per_tile = (width as f32 / scale).ceil().clamp(4.0, Self::LAYER_TEXTURE_SIZE as f32) as u32;
+        per_tile.next_power_of_two().min(Self::LAYER_TEXTURE_SIZE)
+    }
+
     fn skin(&mut self, assembly: &crate::Assembly, width: u32, detail: SkinDetail) -> Result<GunSkin, String> {
         let material = assembly.material.as_deref().ok_or("the weapon has no material part")?;
         let params = self.source.material(material).ok_or_else(|| format!("material {material} was not read"))?;
@@ -328,7 +347,7 @@ impl Pictures {
         if detail == SkinDetail::Textured {
             // Patterns and decals are small textures; a missing one leaves the skin plain.
             if let Some(path) = GunSkin::pattern_path(params) {
-                if let Ok(pixels) = self.textures.get(&self.source, path, Self::LAYER_TEXTURE_SIZE) {
+                if let Ok(pixels) = self.textures.get(&self.source, path, Self::pattern_size(params, width)) {
                     skin = skin.with_pattern(params, pixels);
                 }
             }
