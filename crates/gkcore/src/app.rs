@@ -260,6 +260,17 @@ impl Core {
     /// later creates under the same file name starts read-only.
     pub fn list_characters(&mut self) -> Result<Vec<CharacterEntry>> {
         let steam_ids = library::steam_ids(&self.save_data_root)?;
+        // A "created" record from before records named the character is tied to the
+        // character in the file now (the one Vault Key made, unless it has been replaced).
+        let mut changed = false;
+        for slot in self.settings.created_slots() {
+            if self.settings.created_character(&slot) == Some(None) {
+                if let Some(character) = self.character_on_disk(&slot) {
+                    self.settings.record_created(&slot, &character);
+                    changed = true;
+                }
+            }
+        }
         let mut recorded = self.settings.created_slots();
         recorded.extend(self.settings.test_slots());
         let mut forgot = false;
@@ -275,7 +286,7 @@ impl Core {
                 forgot |= self.settings.forget(&slot);
             }
         }
-        if forgot {
+        if forgot || changed {
             // If this fails the stale entries are still on disk, and are dropped again next time.
             let _ = self.settings.save(&self.settings_path());
         }
@@ -632,13 +643,21 @@ impl Core {
         // A test-slot mark is for one character. Vault Key itself has just put this content
         // in the slot (a rename, or an older backup), so the mark follows it. If that cannot
         // be recorded the slot is simply read-only until it is marked again.
+        // The same goes for the record of a file Vault Key created.
         let replaced = matches!(request.mode, WriteMode::Replace { .. } | WriteMode::Restore { expected_on_disk: Some(_) });
-        if replaced && self.settings.is_test_slot(request.slot_id) {
+        if replaced {
             if let Ok(written) = SaveDocument::from_file_bytes(request.payload) {
                 let character = policy::character_mark(&written);
-                if self.settings.test_slot_character(request.slot_id) != Some(character.as_str()) {
-                    let before = self.settings.clone();
+                let before = self.settings.clone();
+                if self.settings.is_test_slot(request.slot_id)
+                    && self.settings.test_slot_character(request.slot_id) != Some(character.as_str())
+                {
                     self.settings.mark_test_slot(request.slot_id, &character);
+                }
+                if self.settings.created_character(request.slot_id).is_some_and(|made| made != Some(character.as_str())) {
+                    self.settings.record_created(request.slot_id, &character);
+                }
+                if self.settings != before {
                     let _ = self.keep_settings(before);
                 }
             }
@@ -646,9 +665,10 @@ impl Core {
         Ok(outcome)
     }
 
-    /// Records a file this app has just created, so that it is writable from now on.
-    fn record_created(&mut self, slot_id: &SlotId) -> Option<String> {
-        self.settings.record_created(slot_id);
+    /// Records a file this app has just created, so that it is writable from now on (for
+    /// the character it holds).
+    fn record_created(&mut self, slot_id: &SlotId, character: &str) -> Option<String> {
+        self.settings.record_created(slot_id, character);
         self.settings.save(&self.settings_path()).err().map(|e| {
             format!(
                 "{} was written, but Vault Key could not record that it created it, so after a restart it will be read-only until you mark it as a test slot. ({})",
@@ -737,6 +757,7 @@ impl Core {
         expectations.push(Expectation::CharacterValue(CharacterKey::SaveGameId, i64::from(slot)));
         // The written file must be the working character with the new ID, and nothing else.
         checks.retain(|check| !matches!(check, Check::Equals(_)));
+        let character = policy::character_mark(&document);
         checks.push(Check::Equals(document));
         let outcome = self.write(&WriteRequest {
             slot_id: &slot_id,
@@ -747,7 +768,7 @@ impl Core {
             checks: &checks,
             reason: "",
         })?;
-        let warning = self.record_created(&slot_id);
+        let warning = self.record_created(&slot_id, &character);
         Ok(SaveReport { slot_id, path: outcome.path.display().to_string(), backup: None, created_new: true, warning })
     }
 
@@ -818,7 +839,7 @@ mod tests {
     use super::*;
     use crate::changes::Edit;
     use crate::policy::WritableBecause;
-    use crate::testutil::{file_names, sample_bytes, weapon_ref, FakeProcesses, TempDir, STEAM_ID};
+    use crate::testutil::{file_names, sample_bytes, sample_doc, weapon_ref, FakeProcesses, TempDir, STEAM_ID};
     use savekit::Currency;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Mutex;
@@ -1451,6 +1472,53 @@ mod tests {
         assert!(world.core.access(&created).is_writable());
         // Restoring again over the file now there is a normal restore.
         assert!(world.core.restore_backup(&backup.id).unwrap().backup.is_some());
+    }
+
+    #[test]
+    fn a_file_vault_key_made_is_unlocked_only_for_the_character_it_put_there() {
+        let mut world = World::new();
+        world.put("Save0002.sav", 2);
+        let session = world.core.open(&world.slot("Save0002.sav")).unwrap();
+        let created = world.core.save_as_new(&session, 3).unwrap().slot_id;
+        assert!(world.core.access(&created).is_writable());
+
+        // Renamed by Vault Key: still that character, still unlocked.
+        let mut session = world.core.open(&created).unwrap();
+        session.stage(Edit::Name("Mechromancer".to_string())).unwrap();
+        world.core.save_in_place(&mut session).unwrap();
+        world.core.list_characters().unwrap();
+        assert!(world.core.access(&created).is_writable());
+
+        // The game puts a different character in the same file: locked, and it says why.
+        let mut other = sample_doc(3);
+        other.set_name("Krieg").unwrap();
+        fs::write(world.dir.join("Save0003.sav"), other.to_file_bytes().unwrap()).unwrap();
+        world.core.list_characters().unwrap();
+        let access = world.core.access(&created);
+        assert_eq!(access, WriteAccess::ReadOnly(policy::CREATED_OTHER_MESSAGE.to_string()));
+        let mut session = world.core.open(&created).unwrap();
+        session.stage(Edit::Level(9)).unwrap();
+        assert_eq!(world.core.save_in_place(&mut session).unwrap_err().kind, ErrorKind::ReadOnly);
+    }
+
+    #[test]
+    fn a_created_record_from_an_older_version_is_tied_to_the_character_there() {
+        let mut world = World::new();
+        world.put("Save0003.sav", 3);
+        let slot = world.slot("Save0003.sav");
+        let settings = world.temp.path().join("VaultKey").join(crate::settings::SETTINGS_FILE_NAME);
+        let mut text = fs::read_to_string(&settings).unwrap_or_default();
+        text += &format!("created {STEAM_ID}/Save0003.sav\n");
+        fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        fs::write(&settings, text).unwrap();
+        world.core = Core::new(World::config(&world.temp, &world.processes, &world.now)).unwrap();
+        world.core.list_characters().unwrap();
+        assert!(world.core.access(&slot).is_writable());
+        assert!(fs::read_to_string(&settings).unwrap().contains(&format!("created {STEAM_ID}/Save0003.sav character=")));
+        let mut other = sample_doc(3);
+        other.set_name("Krieg").unwrap();
+        fs::write(world.dir.join("Save0003.sav"), other.to_file_bytes().unwrap()).unwrap();
+        assert!(!world.core.access(&slot).is_writable());
     }
 
     /// A backup of slot 1, taken while it was unlocked.

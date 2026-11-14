@@ -59,6 +59,8 @@ pub(crate) const PROTECTED_MESSAGE: &str =
     "This character is locked: Vault Key never changes its file, whatever else is set. Unlock it to edit it in place, or use \"Save to new slot\" to work on a copy.";
 pub(crate) const UNREADABLE_MESSAGE: &str =
     "This file cannot be read, so Vault Key will not edit it. A backup of the test character can still be restored over it.";
+pub(crate) const CREATED_OTHER_MESSAGE: &str =
+    "Vault Key created this file for a different character, so it is locked for this one. Unlock it to edit it in place, or use \"Save to new slot\".";
 pub(crate) const NOT_A_SLOT_MESSAGE: &str =
     "This file does not have a standard slot name (like Save0002.sav), so Vault Key will not write it.";
 pub(crate) const READ_ONLY_MESSAGE: &str =
@@ -116,14 +118,19 @@ pub fn access(settings: &Settings, slot: &SlotId, character: Option<&str>) -> Wr
         return WriteAccess::ReadOnly(NOT_A_SLOT_MESSAGE.to_string());
     };
     // Vault Key only ever creates files in slots 2 to 9, so a "created" record for any
-    // other slot is not one it wrote.
-    if is_creatable_slot(number) && settings.is_created_by_app(slot) {
-        return WriteAccess::Writable(WritableBecause::CreatedByApp);
+    // other slot is not one it wrote. The record covers the character Vault Key put there
+    // (or, for a record from before records named it, whichever character is there).
+    let created = settings.created_character(slot).filter(|_| is_creatable_slot(number));
+    match created {
+        Some(None) => return WriteAccess::Writable(WritableBecause::CreatedByApp),
+        Some(Some(made)) if character == Some(made) => return WriteAccess::Writable(WritableBecause::CreatedByApp),
+        _ => {}
     }
     match settings.test_slot_character(slot) {
         Some(marked) if character == Some(marked) => WriteAccess::Writable(WritableBecause::TestSlot),
         Some(_) if character.is_none() => WriteAccess::ReadOnly(UNREADABLE_MESSAGE.to_string()),
         Some(_) => WriteAccess::ReadOnly(OTHER_CHARACTER_MESSAGE.to_string()),
+        None if created.is_some() && character.is_some() => WriteAccess::ReadOnly(CREATED_OTHER_MESSAGE.to_string()),
         None => WriteAccess::ReadOnly(READ_ONLY_MESSAGE.to_string()),
     }
 }
@@ -150,12 +157,21 @@ mod tests {
         for file in ["Save0001.sav", "Save0002.sav", "Save0009.sav", "Save000a.sav", "Save0002 - Copy.sav"] {
             assert!(!access(&settings, &slot(file), Some(GAIGE)).is_writable(), "{file}");
         }
-        settings.record_created(&slot("Save0003.sav"));
+        settings.record_created(&slot("Save0003.sav"), GAIGE);
         settings.mark_test_slot(&slot("Save0004.sav"), GAIGE);
         assert_eq!(
-            access(&settings, &slot("save0003.SAV"), Some(OTHER)),
+            access(&settings, &slot("save0003.SAV"), Some(GAIGE)),
             WriteAccess::Writable(WritableBecause::CreatedByApp)
         );
+        // A different character that later takes the file Vault Key made is locked.
+        assert_eq!(
+            access(&settings, &slot("Save0003.sav"), Some(OTHER)),
+            WriteAccess::ReadOnly(CREATED_OTHER_MESSAGE.to_string())
+        );
+        // A record from before records named the character covers whoever is there, until
+        // the characters are next listed (which ties it to that character).
+        let old = Settings::parse("created 76561190000000000/Save0003.sav\n");
+        assert!(access(&old, &slot("Save0003.sav"), Some(OTHER)).is_writable());
         assert_eq!(access(&settings, &slot("Save0004.sav"), Some(GAIGE)), WriteAccess::Writable(WritableBecause::TestSlot));
         assert_eq!(
             access(&settings, &slot("Save0005.sav"), Some(GAIGE)),
@@ -205,7 +221,7 @@ mod tests {
     fn a_protected_character_is_read_only_whatever_else_is_set() {
         let doc = crate::testutil::sample_doc(1);
         let mut settings = Settings::default();
-        settings.record_created(&slot("Save0003.sav"));
+        settings.record_created(&slot("Save0003.sav"), GAIGE);
         settings.mark_test_slot(&slot("Save0001.sav"), &character_mark(&doc));
         settings.mark_test_slot(&slot("Save0003.sav"), &character_mark(&doc));
         assert!(access_for(&settings, &slot("Save0001.sav"), Some(&doc)).is_writable());
@@ -225,8 +241,8 @@ mod tests {
     #[test]
     fn explanations_are_sentences() {
         let mut settings = Settings::default();
-        settings.record_created(&slot("Save0003.sav"));
-        assert!(access(&settings, &slot("Save0003.sav"), None).explanation().contains("created this character"));
+        settings.record_created(&slot("Save0003.sav"), GAIGE);
+        assert!(access(&settings, &slot("Save0003.sav"), Some(GAIGE)).explanation().contains("created this character"));
         assert!(access(&settings, &slot("Save0005.sav"), None).explanation().contains("read-only"));
         assert!(is_creatable_slot(2) && is_creatable_slot(9) && !is_creatable_slot(1) && !is_creatable_slot(10));
     }

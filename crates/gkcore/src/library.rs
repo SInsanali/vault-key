@@ -261,7 +261,7 @@ mod tests {
         fs::create_dir(folder.join("Save0007.sav")).unwrap();
 
         let mut settings = Settings::default();
-        settings.record_created(&SlotId::new(STEAM_ID, "Save0002.sav").unwrap());
+        settings.record_created(&SlotId::new(STEAM_ID, "Save0002.sav").unwrap(), &crate::policy::character_mark(&sample_doc(2)));
         let list = scan(&root, &settings).unwrap();
         let names: Vec<&str> = list.iter().map(|c| c.file_name.as_str()).collect();
         assert_eq!(names, ["Save0002.sav", "Save0003.sav", "Save0005.sav", "save000A.SAV", "Save0002 - Copy.sav"]);

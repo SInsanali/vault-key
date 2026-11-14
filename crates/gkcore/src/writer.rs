@@ -644,7 +644,7 @@ mod tests {
         /// The slot file's id, recorded as created by the app.
         fn writable(&mut self, file: &str) -> SlotId {
             let slot = SlotId::new(STEAM_ID, file).unwrap();
-            self.settings.record_created(&slot);
+            self.settings.record_created(&slot, &policy::character_mark(&sample_doc(1)));
             slot
         }
     }
@@ -800,7 +800,7 @@ mod tests {
         let edit = money_edit(3);
         // A Steam-ID folder that is not there.
         let elsewhere = SlotId::new("111", "Save0003.sav").unwrap();
-        world.settings.record_created(&elsewhere);
+        world.settings.record_created(&elsewhere, &policy::character_mark(&sample_doc(3)));
         let (result, steps) = run(&world, &edit.replace(&elsewhere, &original));
         assert_eq!(result.unwrap_err().kind, ErrorKind::InvalidTarget);
         assert_eq!(steps, [WriteStep::Policy]);
@@ -822,7 +822,7 @@ mod tests {
             return;
         }
         let linked = SlotId::new("222", "Save0003.sav").unwrap();
-        world.settings.record_created(&linked);
+        world.settings.record_created(&linked, &policy::character_mark(&sample_doc(3)));
         let (result, _) = run(&world, &edit.replace(&linked, &original));
         let error = result.unwrap_err();
         assert_eq!(error.kind, ErrorKind::InvalidTarget, "{}", error.message);

@@ -233,7 +233,7 @@ fn entry_json(core: &Core, e: &CharacterEntry) -> Value {
         "saveGameId": e.save_game_id,
         "access": access_json(&e.access),
         "isTestSlot": core.settings().is_test_slot(&e.slot_id),
-        "createdByApp": core.settings().is_created_by_app(&e.slot_id),
+        "createdByApp": e.access == WriteAccess::Writable(WritableBecause::CreatedByApp),
         "canBeTestSlot": standard_slot && !e.protected,
         "protected": e.protected,
         "steamCloud": e.steam_cloud,
