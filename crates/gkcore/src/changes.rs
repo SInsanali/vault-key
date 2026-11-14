@@ -545,27 +545,53 @@ fn edit_error(error: SaveKitError) -> CoreError {
 /// pending item-level change. The game can't use such gear: when it loads the save it takes
 /// every one of those items off, so equipped guns end up in the backpack. (Gear that was
 /// already like that in the original is left to the game; only Vault Key's changes count.)
-pub(crate) fn equipped_within_level(replayed: &Replay) -> Result<()> {
-    let level = replayed.doc.level();
-    let highest = replayed
-        .doc
-        .inventory()
-        .iter()
+/// The highest item level a character can use: their level, plus their Overpower levels
+/// once they are at the level cap (Overpower only applies there).
+fn usable_level(doc: &SaveDocument) -> i64 {
+    let level = doc.level();
+    if level >= MAX_LEVEL { level + doc.op_level().clamp(0, MAX_OP_LEVEL) } else { level }
+}
+
+/// Equipped gear the character cannot use: the item fields and level of each.
+fn equipped_above(doc: &SaveDocument) -> Vec<(ItemFields, i64)> {
+    let usable = usable_level(doc);
+    doc.inventory()
+        .into_iter()
         .filter(|e| e.location == ItemLocation::Equipped && !e.is_virtual)
-        .filter_map(|e| replayed.item_levels.iter().find(|(at, _)| *at == e.entry_ref).map(|(_, l)| i64::from(*l)))
-        .filter(|&item| item > level)
-        .max();
-    match highest {
-        None => Ok(()),
-        Some(item) => fail(
-            ErrorKind::InvalidValue,
-            format!(
-                "Nothing was saved: equipped gear would be level {item}, but the character is level {level}. \
-                 The game takes off any gear above your level when it loads, so your equipped guns would end up \
-                 in the backpack. Raise the character to level {item}, or set item levels to {level} or lower."
-            ),
-        ),
+        .filter_map(|e| e.fields)
+        .filter_map(|fields| {
+            let level = i64::from(fields.grade_index?);
+            (level > usable).then_some((fields, level))
+        })
+        .collect()
+}
+
+/// Refuses a save that would leave equipped gear above what the character can use, the
+/// gear the game takes off when it loads. Gear that was already like that in the original
+/// is left alone: the edit did not cause it, and refusing every save would trap the file.
+pub(crate) fn equipped_within_level(original: &SaveDocument, replayed: &Replay) -> Result<()> {
+    let mut before = equipped_above(original);
+    let mut highest = None;
+    for (fields, level) in equipped_above(&replayed.doc) {
+        match before.iter().position(|(f, _)| *f == fields) {
+            Some(at) => {
+                before.swap_remove(at);
+            }
+            None => highest = highest.max(Some(level)),
+        }
     }
+    let Some(item) = highest else { return Ok(()) };
+    let level = replayed.doc.level();
+    let usable = usable_level(&replayed.doc);
+    let can_use = if usable == level { format!("level {level}") } else { format!("level {level} with Overpower, up to {usable}") };
+    fail(
+        ErrorKind::InvalidValue,
+        format!(
+            "Nothing was saved: equipped gear would be level {item}, but the character is {can_use}. \
+             The game takes off any gear above that when it loads, so your equipped guns would end up \
+             in the backpack. Raise the character's level, or set item levels to {usable} or lower."
+        ),
+    )
 }
 
 /// What the written file must satisfy, derived from the pending changes: expectations for
@@ -824,7 +850,7 @@ mod tests {
     #[test]
     fn equipped_gear_above_the_character_level_is_not_saved() {
         let check = |changes: &[PendingChange]| {
-            equipped_within_level(&replay(&equipped_doc(3), changes, &FallbackGearClassifier).unwrap())
+            equipped_within_level(&equipped_doc(3), &replay(&equipped_doc(3), changes, &FallbackGearClassifier).unwrap())
         };
         // Items to 6 on a level-5 character: the game would take the gun off. Refused, and
         // the message gives both numbers.
@@ -839,7 +865,33 @@ mod tests {
         assert!(check(&[change(1, Edit::Level(9)), change(2, Edit::ItemLevels { level: 0, force: true })]).is_ok());
         assert!(check(&[change(1, Edit::ItemLevels { level: 3, force: true })]).is_ok());
         // Gear in the backpack may be above the level: the game leaves it there.
-        assert!(equipped_within_level(&replayed(&[change(1, Edit::ItemLevels { level: 50, force: true })]).unwrap()).is_ok());
+        let unequipped = replayed(&[change(1, Edit::ItemLevels { level: 50, force: true })]).unwrap();
+        assert!(equipped_within_level(&sample_doc(3), &unequipped).is_ok());
+        // Lowering the character below the gear they wear is refused as well.
+        assert!(check(&[change(1, Edit::Level(9)), change(2, Edit::ItemLevels { level: 9, force: true })]).is_ok());
+        let error = check(&[
+            change(1, Edit::Level(9)),
+            change(2, Edit::ItemLevels { level: 9, force: true }),
+            change(3, Edit::Level(4)),
+        ])
+        .unwrap_err();
+        assert!(error.message.contains("level 9") && error.message.contains("level 4"), "{}", error.message);
+        // At level 80, Overpower levels count: OP 8 can wear level-88 gear, not 89.
+        let at_cap = |items: i64| {
+            check(&[
+                change(1, Edit::Level(80)),
+                change(2, Edit::OpLevel(8)),
+                change(3, Edit::ItemLevels { level: items, force: true }),
+            ])
+        };
+        assert!(at_cap(88).is_ok());
+        let error = at_cap(89).unwrap_err();
+        assert!(error.message.contains("up to 88"), "{}", error.message);
+        // Gear that was already above the level in the original does not block other edits.
+        let mut over = equipped_doc(3);
+        over.set_item_levels(30, true).unwrap();
+        let money = replay(&over, &[change(1, Edit::Currency(Currency::Money, 10))], &FallbackGearClassifier).unwrap();
+        assert!(equipped_within_level(&over, &money).is_ok());
     }
 
     #[test]

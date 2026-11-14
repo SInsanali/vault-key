@@ -65,11 +65,13 @@ function itemLevels(c, actions, ui) {
   const warning = h("div", { class: "callout bad", role: "status", dataset: { fk: "il-above" } });
   const showWarning = () => {
     const level = Number(levelBox.value);
-    const above = fixed.checked && Number.isInteger(level) && level > c.current.level;
+    // At level 80, Overpower levels let the character use gear above 80.
+    const usable = c.current.level >= 80 ? c.current.level + (c.current.opLevel ?? 0) : c.current.level;
+    const above = fixed.checked && Number.isInteger(level) && level > usable;
     warning.style.display = above ? "" : "none";
     warning.replaceChildren(
       icon("warn", 18, 2.6),
-      h("span", {}, `Level ${level} is above ${c.current.name}'s level (${c.current.level}). The game takes off equipped gear above your level, so Vault Key won't save this. Raise the character's level on Overview first.`),
+      h("span", {}, `Level ${level} is above what ${c.current.name} can use (level ${usable}). The game takes off equipped gear above that, so Vault Key won't save this. Raise the character's level on Overview first.`),
     );
   };
   showWarning();
