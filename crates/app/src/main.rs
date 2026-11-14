@@ -38,6 +38,8 @@ const SELECT_ENV: &str = "GK_UI_SELECT";
 /// "Open a save file…" would (used to capture the window with a file from outside the save
 /// folder open).
 const OPEN_ENV: &str = "GK_UI_OPEN";
+/// The answer to a command that hit a bug (the panic itself is in the error log).
+const PANIC_MESSAGE: &str = "Something went wrong inside Vault Key, so that was not done. Nothing was saved. The character was closed; open it again to go on. The error log (Settings, Where things are) has the details.";
 /// The only addresses the window may show: the app's own pages. WebView2 serves the `gk`
 /// scheme as `http://gk.localhost/`; the other spelling is what the app asks for.
 const APP_ORIGINS: [&str; 2] = ["http://gk.localhost", "gk://localhost"];
@@ -116,7 +118,16 @@ fn serve_pictures(inbox: mpsc::Receiver<(String, RequestAsyncResponder)>) {
         let routes: Vec<&str> = waiting.iter().map(|(route, _)| route.as_str()).collect();
         let Some(next) = pictures::next_request(&routes) else { continue };
         let (route, responder) = waiting.remove(next);
-        responder.respond(picture_response(service.answer(&route)));
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| service.answer(&route)));
+        let response = match answer {
+            Ok(answer) => picture_response(answer),
+            Err(_) => {
+                // Start over with the game's files on the next picture.
+                service = pictures::Service::live();
+                respond(StatusCode::INTERNAL_SERVER_ERROR, "text/plain; charset=utf-8", Cow::Borrowed(b"This picture could not be drawn."))
+            }
+        };
+        responder.respond(response);
     }
 }
 
@@ -299,10 +310,17 @@ fn main() {
             } else {
                 serde_json::from_slice(&call.body)
             };
-            let (result, effect) = match args {
+            // A panic (a bug) answers this one call with an error, and the app goes on. The
+            // open character is closed, since a change may have been half made to it; files
+            // are only ever changed through the safe write path, which leaves them whole.
+            let handled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match args {
                 Ok(args) => api.handle(&call.command, &args),
                 Err(e) => (Err(format!("bad request body: {e}")), api::Effect::None),
-            };
+            }));
+            let (result, effect) = handled.unwrap_or_else(|_| {
+                api.recover_from_panic();
+                (Err(PANIC_MESSAGE.to_string()), api::Effect::None)
+            });
             let response = match result {
                 Ok(value) => json_response(StatusCode::OK, &serde_json::json!({ "ok": value })),
                 Err(message) => json_response(StatusCode::OK, &serde_json::json!({ "error": message })),

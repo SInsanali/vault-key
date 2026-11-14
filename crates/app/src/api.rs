@@ -504,6 +504,12 @@ impl Api {
         }
     }
 
+    /// After a command panicked: the open character may be half changed, so it is closed.
+    pub fn recover_from_panic(&mut self) {
+        self.session = None;
+        self.game = None;
+    }
+
     /// `path`, if the page may use it for `purpose`: in the running app, only a path the
     /// user chose in the Open or Save dialog.
     fn chosen_path(&self, args: &Value, purpose: dialogs::Purpose) -> Result<PathBuf, String> {
