@@ -398,6 +398,12 @@ function run(command, args) {
       return { backups: session?.external ? [] : backups.filter((b) => b.slotId === (args?.slotId ?? session?.slotId)) };
     case "restore_backup":
       return restore(args.backupId);
+    case "delete_backup": {
+      const at = backups.findIndex((b) => b.id === args.backupId);
+      if (at < 0) throw new Refusal(`There is no backup "${args.backupId}".`);
+      backups.splice(at, 1);
+      return null;
+    }
     case "mark_test_slot":
     case "unmark_test_slot": {
       const entry = characters.find((c) => c.slotId === args.slotId);

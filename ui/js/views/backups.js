@@ -49,6 +49,7 @@ export function renderBackups(state, actions) {
                 { type: "button", class: "btn small yellow", disabled: !c.access.writable, dataset: { fk: `restore-${backup.id}` }, onClick: () => actions.askRestore(backup) },
                 "Restore",
               ),
+              h("button", { type: "button", class: "btn small", dataset: { fk: `delete-${backup.id}` }, onClick: () => actions.askDeleteBackup(backup) }, "Delete"),
             ),
           ),
         ),

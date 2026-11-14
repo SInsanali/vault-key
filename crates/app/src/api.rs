@@ -888,6 +888,11 @@ impl Api {
             "save_as_new" => self.save_as_new(args),
             "list_backups" => self.list_backups(args),
             "restore_backup" => self.restore_backup(args),
+            "delete_backup" => {
+                let id = text_arg(args, "backupId")?;
+                self.core.as_mut().map_err(|e| e.message.clone())?.delete_backup(id).map_err(message)?;
+                Ok(Value::Null)
+            }
             "mark_test_slot" => self.set_test_slot(args, true),
             "unmark_test_slot" => self.set_test_slot(args, false),
             "set_theme" => {

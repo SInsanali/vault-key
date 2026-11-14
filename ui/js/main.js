@@ -619,6 +619,38 @@ export const actions = {
     actions.refreshStatus(true);
   },
 
+  askDeleteBackup(backup) {
+    // From the list of missing or damaged saves, the list comes back afterwards.
+    const back = state.sheet?.type === "file-backups";
+    state.sheet = { type: "delete-backup", backup, back, phase: "confirm", error: null };
+    renderSheetNow();
+  },
+
+  async confirmDeleteBackup() {
+    const sheet = state.sheet;
+    if (sheet?.type !== "delete-backup" || sheet.phase === "working") return false;
+    sheet.phase = "working";
+    sheet.error = null;
+    renderSheetNow();
+    try {
+      await call("delete_backup", { backupId: sheet.backup.id });
+    } catch (error) {
+      sheet.phase = "confirm";
+      sheet.error = messageOf(error);
+      renderSheetNow();
+      return false;
+    }
+    toast("ok", "Backup deleted.");
+    if (sheet.back) {
+      await actions.openFileBackups();
+    } else {
+      state.sheet = null;
+      renderSheetNow();
+      await loadBackups();
+    }
+    return true;
+  },
+
   async confirmRestore() {
     const sheet = state.sheet;
     if (sheet?.type !== "restore" || sheet.phase === "working") return null;

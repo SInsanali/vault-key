@@ -391,6 +391,7 @@ function fileBackupsSheet(state, actions) {
                   { type: "button", class: "btn small yellow", disabled: !backup.characterName, dataset: { fk: `restore-${backup.id}` }, onClick: () => actions.askRestore(backup, { gone: !entry }) },
                   "Restore",
                 ),
+                h("button", { type: "button", class: "btn small", dataset: { fk: `delete-${backup.id}` }, onClick: () => actions.askDeleteBackup(backup) }, "Delete"),
               ),
             ),
           ),
@@ -408,6 +409,39 @@ function fileBackupsSheet(state, actions) {
       body,
       sheet_error(state),
       h("div", { class: "sheet-actions" }, skewButton({ class: "btn big", autofocus: true, dataset: { fk: "done" }, onClick: () => actions.closeSheet() }, "Close")),
+    ),
+  ];
+}
+
+/** Deleting a backup: it can't be undone, so it is asked first. */
+function deleteBackupSheet(state, actions) {
+  const sheet = state.sheet;
+  const backup = sheet.backup;
+  const busy = sheet.phase === "working";
+  return [
+    h("div", { class: "hazard" }),
+    h(
+      "div",
+      { class: "sheet-body" },
+      head(backup.fileName, "Delete this backup?"),
+      h(
+        "dl",
+        { class: "kv" },
+        h("dt", {}, "Taken"),
+        h("dd", {}, formatWhen(backup.createdUnix)),
+        h("dt", {}, "Why"),
+        h("dd", {}, backup.reason || "—"),
+        h("dt", {}, "Holds"),
+        h("dd", {}, backup.characterName ? `${backup.characterName}, level ${backup.level}` : "Not a readable save"),
+      ),
+      h("p", { class: "note" }, "It is gone for good: it can't be restored afterwards. Your save files are not changed."),
+      sheet.error ? h("div", { class: "callout bad", role: "alert" }, icon("warn", 18, 2.6), h("span", {}, h("strong", {}, "Not deleted. "), sheet.error)) : null,
+      h(
+        "div",
+        { class: "sheet-actions" },
+        skewButton({ class: "btn big", disabled: busy, autofocus: true, dataset: { fk: "cancel" }, onClick: () => actions.closeSheet() }, "Cancel"),
+        skewButton({ class: "btn hero", disabled: busy, dataset: { fk: "go" }, onClick: () => actions.confirmDeleteBackup() }, busy ? "Deleting…" : "Delete"),
+      ),
     ),
   ];
 }
@@ -560,6 +594,8 @@ function build(state, actions) {
       return dropSheet(state, actions);
     case "file-backups":
       return fileBackupsSheet(state, actions);
+    case "delete-backup":
+      return deleteBackupSheet(state, actions);
     case "settings":
       return settingsSheet(state, actions);
     case "export":

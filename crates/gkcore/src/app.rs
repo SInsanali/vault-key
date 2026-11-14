@@ -257,9 +257,11 @@ impl Core {
     /// its problem. An error only if the SaveData folder itself cannot be listed.
     ///
     /// Also forgets write permission for files that are gone, so that a character the game
-    /// later creates under the same file name starts read-only.
+    /// later creates under the same file name starts read-only, and removes temp files a write
+    /// that was stopped part way left behind (see [`library::remove_stale_temp_files`]).
     pub fn list_characters(&mut self) -> Result<Vec<CharacterEntry>> {
         let steam_ids = library::steam_ids(&self.save_data_root)?;
+        library::remove_stale_temp_files(&self.save_data_root, std::time::SystemTime::now());
         // A "created" record from before records named the character is tied to the
         // character in the file now (the one Vault Key made, unless it has been replaced).
         let mut changed = false;
@@ -777,6 +779,11 @@ impl Core {
     /// Every backup, newest first, with what each is a backup of and when it was taken.
     pub fn list_backups(&self) -> Vec<BackupInfo> {
         self.backups.list()
+    }
+
+    /// Deletes one backup. It cannot be undone; the page asks first.
+    pub fn delete_backup(&mut self, backup_id: &str) -> Result<()> {
+        self.backups.delete(backup_id)
     }
 
     /// Backups of one character file, newest first.
