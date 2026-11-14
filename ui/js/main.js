@@ -610,8 +610,8 @@ export const actions = {
     }
   },
 
-  askRestore(backup) {
-    state.sheet = { type: "restore", backup, phase: "confirm", error: null };
+  askRestore(backup, { gone = false } = {}) {
+    state.sheet = { type: "restore", backup, gone, phase: "confirm", error: null };
     renderSheetNow();
     actions.refreshStatus(true);
   },
@@ -642,6 +642,22 @@ export const actions = {
 
   openSettings() {
     state.sheet = { type: "settings", error: null };
+    renderSheetNow();
+  },
+
+  /** Backups of save files that are gone or can't be read (they have no Backups tab). */
+  async openFileBackups() {
+    state.sheet = { type: "file-backups", backups: null, error: null };
+    renderSheetNow();
+    try {
+      const answer = await call("list_backups", { all: true });
+      if (state.sheet?.type !== "file-backups") return;
+      state.sheet.backups = answer.backups;
+    } catch (error) {
+      if (state.sheet?.type !== "file-backups") return;
+      state.sheet.backups = [];
+      state.sheet.error = messageOf(error);
+    }
     renderSheetNow();
   },
 

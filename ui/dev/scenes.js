@@ -1,7 +1,7 @@
 // Puts the browser preview into a given state, for looking at one screen at a time:
 //   index.html?mock&screen=<name>
 // Screens: gear (default), overview, unlocks, backups, save, save-readonly, saved, restore,
-// item-levels-above, save-many, drop, settings, error, full, pick, raw, external, export, exported, add, loadout. Data variants (any screen): &data=empty,
+// item-levels-above, file-backups, restore-gone, save-many, drop, settings, error, full, pick, raw, external, export, exported, add, loadout. Data variants (any screen): &data=empty,
 // &data=nofolder, &names=loading|off, &game=running|unknown.
 
 const SLOT = (n) => `76561190000000000/Save000${n}.sav`;
@@ -97,6 +97,15 @@ export async function play({ state, actions, params }) {
     case "settings":
       await zero();
       actions.openSettings();
+      break;
+    case "file-backups":
+      await zero();
+      await actions.openFileBackups();
+      break;
+    case "restore-gone":
+      await zero();
+      await actions.openFileBackups();
+      actions.askRestore(state.sheet.backups.find((b) => b.slot === 5), { gone: true });
       break;
     case "error":
       await zero();

@@ -5,17 +5,19 @@ import { chip, h, icon } from "../dom.js";
 function characterRow(entry, state, actions) {
   const slot = entry.slot ?? "?";
   if (!entry.readable) {
-    return h(
-      "div",
-      { class: "char broken", role: "listitem", title: entry.problem },
+    // Its backups can't be reached from a Backups tab, so the row opens the list of them.
+    const button = h(
+      "button",
+      { type: "button", class: "char broken", title: `${entry.problem} Click to see its backups.`, dataset: { fk: `char-${entry.slotId}` }, onClick: () => actions.openFileBackups() },
       h("span", { class: "char-slot" }, slot),
       h(
         "span",
         { class: "char-text" },
         h("span", { class: "char-name" }, entry.fileName),
-        h("span", { class: "char-sub" }, "Can't be read, so it can't be opened."),
+        h("span", { class: "char-sub" }, "Can't be read. See its backups."),
       ),
     );
+    return h("div", { class: "char-row", role: "listitem" }, button);
   }
   const access = entry.access;
   const current = state.character?.slotId === entry.slotId;

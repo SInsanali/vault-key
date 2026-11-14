@@ -632,7 +632,8 @@ impl Core {
         // A test-slot mark is for one character. Vault Key itself has just put this content
         // in the slot (a rename, or an older backup), so the mark follows it. If that cannot
         // be recorded the slot is simply read-only until it is marked again.
-        if matches!(request.mode, WriteMode::Replace { .. }) && self.settings.is_test_slot(request.slot_id) {
+        let replaced = matches!(request.mode, WriteMode::Replace { .. } | WriteMode::Restore { expected_on_disk: Some(_) });
+        if replaced && self.settings.is_test_slot(request.slot_id) {
             if let Ok(written) = SaveDocument::from_file_bytes(request.payload) {
                 let character = policy::character_mark(&written);
                 if self.settings.test_slot_character(request.slot_id) != Some(character.as_str()) {
@@ -763,9 +764,10 @@ impl Core {
     }
 
     /// Puts a backup back over the file it was taken from, through the same safe write
-    /// path as a save: the file must be writable by policy, the game must be closed, and
-    /// what is there now is backed up first. If the file is gone and its slot is free, the
-    /// backup is placed as a new file under the rules for new characters.
+    /// path as a save: the game must be closed, and what is there now is backed up first. A
+    /// readable file must be writable by policy; one that cannot be read may be replaced. If
+    /// the file is gone, the backup is put back under its own name (it comes back locked),
+    /// as long as no other save uses its save-game ID.
     ///
     /// A session open on that file is out of date afterwards: reopen it.
     pub fn restore_backup(&mut self, backup_id: &str) -> Result<SaveReport> {
@@ -783,55 +785,34 @@ impl Core {
         // The restored file must be the backup, bit for bit.
         let expectations = [Expectation::Unchanged];
         let checks = [Check::Equals(document.clone())];
-        match fs::read(&target) {
-            Ok(current) => {
-                let outcome = self.write(&WriteRequest {
-                    slot_id: &slot_id,
-                    mode: WriteMode::Replace { expected_on_disk: &current },
-                    payload: &payload,
-                    baseline: &document,
-                    expectations: &expectations,
-                    checks: &checks,
-                    reason: &reason,
-                })?;
-                Ok(SaveReport {
-                    path: outcome.path.display().to_string(),
-                    backup: outcome.backup,
-                    created_new: false,
-                    warning: None,
-                    slot_id,
-                })
+        let current = match fs::read(&target) {
+            Ok(current) => Some(current),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return fail(
+                    ErrorKind::ChangedOnDisk,
+                    format!("{} can't be read right now ({e}), so the backup was not restored.", slot_id.file_name()),
+                )
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let Some(slot) = slot_id.slot() else {
-                    return fail(ErrorKind::InvalidTarget, policy::NOT_A_SLOT_MESSAGE);
-                };
-                let outcome = self.write(&WriteRequest {
-                    slot_id: &slot_id,
-                    mode: WriteMode::CreateNew { slot },
-                    payload: &payload,
-                    baseline: &document,
-                    expectations: &expectations,
-                    checks: &checks,
-                    reason: &reason,
-                })?;
-                let warning = self.record_created(&slot_id);
-                Ok(SaveReport {
-                    path: outcome.path.display().to_string(),
-                    backup: None,
-                    created_new: true,
-                    warning,
-                    slot_id,
-                })
-            }
-            Err(e) => fail(
-                ErrorKind::ChangedOnDisk,
-                format!("{} can't be read right now ({e}), so the backup was not restored.", slot_id.file_name()),
-            ),
-        }
+        };
+        let outcome = self.write(&WriteRequest {
+            slot_id: &slot_id,
+            mode: WriteMode::Restore { expected_on_disk: current.as_deref() },
+            payload: &payload,
+            baseline: &document,
+            expectations: &expectations,
+            checks: &checks,
+            reason: &reason,
+        })?;
+        Ok(SaveReport {
+            path: outcome.path.display().to_string(),
+            backup: outcome.backup,
+            created_new: current.is_none(),
+            warning: None,
+            slot_id,
+        })
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1439,7 +1420,7 @@ mod tests {
     }
 
     #[test]
-    fn restore_into_a_slot_whose_file_is_gone_follows_the_rules_for_new_files() {
+    fn restore_puts_back_a_file_that_is_gone() {
         let mut world = World::new();
         world.put("Save0002.sav", 2);
         let session = world.core.open(&world.slot("Save0002.sav")).unwrap();
@@ -1463,7 +1444,60 @@ mod tests {
         let report = world.core.restore_backup(&backup.id).unwrap();
         assert!(report.created_new && report.backup.is_none());
         assert_eq!(world.read("Save0003.sav"), backed_up);
-        assert!(world.core.access(&created).is_writable(), "Vault Key created this file");
+        // It comes back locked, like any character Vault Key did not just create; one
+        // unlock makes it editable again.
+        assert!(!world.core.access(&created).is_writable());
+        world.core.unlock(&created).unwrap();
+        assert!(world.core.access(&created).is_writable());
+        // Restoring again over the file now there is a normal restore.
+        assert!(world.core.restore_backup(&backup.id).unwrap().backup.is_some());
+    }
+
+    /// A backup of slot 1, taken while it was unlocked.
+    fn slot_one_backup(world: &mut World) -> (BackupInfo, Vec<u8>) {
+        let original = world.put("Save0001.sav", 1);
+        let slot = world.slot("Save0001.sav");
+        world.core.unlock(&slot).unwrap();
+        let mut session = world.core.open(&slot).unwrap();
+        session.stage(Edit::Level(30)).unwrap();
+        let backup = world.core.save_in_place(&mut session).unwrap().backup.unwrap();
+        assert_eq!(fs::read(&backup.path).unwrap(), original);
+        (backup, original)
+    }
+
+    #[test]
+    fn the_main_character_comes_back_from_a_backup_when_its_file_is_gone() {
+        let mut world = World::new();
+        let (backup, original) = slot_one_backup(&mut world);
+        world.core.lock(&world.slot("Save0001.sav")).unwrap();
+        fs::remove_file(world.dir.join("Save0001.sav")).unwrap();
+        world.core.list_characters().unwrap();
+        // Slot 1, locked, and its save-game ID is not a slot number Vault Key would make:
+        // it still comes back, as it was.
+        let report = world.core.restore_backup(&backup.id).unwrap();
+        assert!(report.created_new);
+        assert_eq!(world.read("Save0001.sav"), original);
+        // Not while the game runs.
+        fs::remove_file(world.dir.join("Save0001.sav")).unwrap();
+        world.processes.running.store(true, Ordering::SeqCst);
+        assert_eq!(world.core.restore_backup(&backup.id).unwrap_err().kind, ErrorKind::GameRunning);
+        assert!(!world.dir.join("Save0001.sav").exists());
+    }
+
+    #[test]
+    fn a_damaged_file_can_be_replaced_by_its_backup_whatever_its_marks() {
+        let mut world = World::new();
+        let (backup, original) = slot_one_backup(&mut world);
+        // The file is damaged, and the slot has no mark that covers it any more.
+        world.core.unmark_test_slot(&world.slot("Save0001.sav")).unwrap();
+        fs::write(world.dir.join("Save0001.sav"), b"not a save").unwrap();
+        let report = world.core.restore_backup(&backup.id).unwrap();
+        assert!(!report.created_new);
+        assert_eq!(world.read("Save0001.sav"), original);
+        // The damaged file was backed up first.
+        assert_eq!(fs::read(&report.backup.unwrap().path).unwrap(), b"not a save");
+        // A readable file still follows the marks: slot 1 is locked again now.
+        assert_eq!(world.core.restore_backup(&backup.id).unwrap_err().kind, ErrorKind::ReadOnly);
     }
 
     /// A folder outside the save folder, for files opened and exported by hand.

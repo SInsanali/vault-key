@@ -394,6 +394,7 @@ function run(command, args) {
     case "save_as_new":
       return saveAsNew(args.slot);
     case "list_backups":
+      if (args?.all) return { backups };
       return { backups: session?.external ? [] : backups.filter((b) => b.slotId === (args?.slotId ?? session?.slotId)) };
     case "restore_backup":
       return restore(args.backupId);
