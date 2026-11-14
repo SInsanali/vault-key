@@ -28,9 +28,12 @@
 //! - [`policy`]: an existing save file may be changed only if this app created it or the
 //!   user marked its slot as a test slot (a mark that covers only the character it was made
 //!   for). Nothing is writable by default, and there is no switch that allows everything.
-//! - [`writer`]: every write to the SaveData folder goes through one function, which checks
-//!   the policy, refuses while the game runs, refuses if the file changed since it was
-//!   opened, backs up, writes a temp file, verifies it from disk, swaps it in, and confirms.
+//! - [`writer`]: every write the app makes to the SaveData folder goes through one function,
+//!   which checks the policy, refuses while the game runs, refuses if the file changed since
+//!   it was opened, backs up, writes a temp file, verifies it from disk, swaps it in, and
+//!   confirms. (The developer tool `gk` has one other way in, `gk install`, which only ever
+//!   adds a new file to a free slot, under the same slot and save-game ID guards; it is not
+//!   part of the app that is handed out.)
 //! - [`backup`]: backups live in Vault Key's own folder, never in SaveData, and never
 //!   overwrite one another.
 //! - [`session`] and [`changes`]: edits are staged, and nothing touches the disk until a save.

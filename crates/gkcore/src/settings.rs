@@ -5,14 +5,16 @@
 //! ```text
 //! # Vault Key settings
 //! format 1
-//! created 76561190000000000/Save0003.sav
+//! created 76561190000000000/Save0003.sav character=fedcba9876543210
 //! test-slot 76561190000000000/Save0004.sav character=0123456789abcdef
 //! ```
 //!
 //! `created` is a file this app made; `test-slot` is a slot the user marked as a test slot.
-//! A test-slot mark is tied to the character that was in the slot when it was marked (see
-//! [`crate::policy::character_mark`]): it grants nothing for a different character that later
-//! turns up under the same file name. A `test-slot` line without a character grants nothing.
+//! Both are tied to a character (see [`crate::policy::character_mark`]): the one Vault Key
+//! put in the file, or the one that was in the slot when it was marked. They grant nothing
+//! for a different character that later turns up under the same file name. A `test-slot`
+//! line without a character grants nothing. A `created` line without one was written before
+//! 0.9.1; it is tied to the character in the file the next time the characters are listed.
 //! A line that is not understood grants nothing, and is kept as it is when the file is
 //! written again (so a newer version's entries survive).
 //!
@@ -52,6 +54,14 @@ struct TestMark {
     character: String,
 }
 
+/// A file Vault Key created, and the character it put there (`None` for a record from before
+/// records named the character).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CreatedMark {
+    slot: SlotId,
+    character: Option<String>,
+}
+
 /// A character mark as it is written: 16 lower-case hex digits.
 fn is_character_mark(text: &str) -> bool {
     text.len() == 16 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
@@ -63,7 +73,7 @@ pub struct Settings {
     /// The SaveData folder these entries are about, as [`save_folder_key`] writes it.
     save_folder: Option<String>,
     /// By [`SlotId::key`].
-    created: BTreeMap<String, SlotId>,
+    created: BTreeMap<String, CreatedMark>,
     test_slots: BTreeMap<String, TestMark>,
     /// Protected characters: [`crate::policy::protection_key`] → a label for people.
     protected: BTreeMap<String, String>,
@@ -112,9 +122,18 @@ impl Settings {
             }
             let rest = rest.trim();
             let understood = match keyword {
-                CREATED => SlotId::parse(rest).ok().map(|slot| {
-                    settings.created.insert(slot.key(), slot);
-                }),
+                CREATED => {
+                    let marked = match rest.rsplit_once(CHARACTER) {
+                        Some((slot, character)) => is_character_mark(character)
+                            .then(|| SlotId::parse(slot.trim()).ok())
+                            .flatten()
+                            .map(|slot| (slot, Some(character.to_string()))),
+                        None => SlotId::parse(rest).ok().map(|slot| (slot, None)),
+                    };
+                    marked.map(|(slot, character)| {
+                        settings.created.insert(slot.key(), CreatedMark { slot, character });
+                    })
+                }
                 TEST_SLOT => rest
                     .rsplit_once(CHARACTER)
                     .filter(|(_, character)| is_character_mark(character))
@@ -144,8 +163,11 @@ impl Settings {
         if let Some(folder) = &self.save_folder {
             out += &format!("{SAVE_FOLDER} {folder}\n");
         }
-        for slot in self.created.values() {
-            out += &format!("{CREATED} {slot}\n");
+        for mark in self.created.values() {
+            match &mark.character {
+                Some(character) => out += &format!("{CREATED} {}{CHARACTER}{character}\n", mark.slot),
+                None => out += &format!("{CREATED} {}\n", mark.slot),
+            }
         }
         for mark in self.test_slots.values() {
             out += &format!("{TEST_SLOT} {}{CHARACTER}{}\n", mark.slot, mark.character);
@@ -192,8 +214,16 @@ impl Settings {
         self.save_folder = Some(key);
     }
 
+    /// True when Vault Key recorded creating this file. Whether that covers the character
+    /// in it now is [`crate::policy::access`]'s question.
     pub fn is_created_by_app(&self, slot: &SlotId) -> bool {
         self.created.contains_key(&slot.key())
+    }
+
+    /// The character Vault Key put in a file it created: `None` if it did not create it,
+    /// `Some(None)` for a record from before records named the character.
+    pub fn created_character(&self, slot: &SlotId) -> Option<Option<&str>> {
+        self.created.get(&slot.key()).map(|mark| mark.character.as_deref())
     }
 
     /// True when the slot carries a test-slot mark. Whether the mark applies to the character
@@ -243,7 +273,7 @@ impl Settings {
 
     /// Files this app created, in order.
     pub fn created_slots(&self) -> Vec<SlotId> {
-        self.created.values().cloned().collect()
+        self.created.values().map(|mark| mark.slot.clone()).collect()
     }
 
     /// Slots the user marked as test slots, in order.
@@ -251,8 +281,10 @@ impl Settings {
         self.test_slots.values().map(|mark| mark.slot.clone()).collect()
     }
 
-    pub(crate) fn record_created(&mut self, slot: &SlotId) {
-        self.created.insert(slot.key(), slot.clone());
+    /// Records that Vault Key created this file with this character in it (or, for a record
+    /// that already exists, that the character in it is now this one).
+    pub(crate) fn record_created(&mut self, slot: &SlotId, character: &str) {
+        self.created.insert(slot.key(), CreatedMark { slot: slot.clone(), character: Some(character.to_string()) });
     }
 
     /// Marks the slot as a test slot for the character with this mark.
@@ -263,6 +295,26 @@ impl Settings {
     /// True if the slot was marked.
     pub(crate) fn unmark_test_slot(&mut self, slot: &SlotId) -> bool {
         self.test_slots.remove(&slot.key()).is_some()
+    }
+
+    /// Adds the records `other` has and these settings do not (created files, test-slot
+    /// marks and locked characters), for bringing settings over from an older copy. Nothing
+    /// is taken from settings about a different save folder; nothing here is replaced.
+    pub fn merge_missing(&mut self, other: &Settings) -> bool {
+        if other.save_folder.is_some() && self.save_folder.is_some() && other.save_folder != self.save_folder {
+            return false;
+        }
+        let before = self.clone();
+        for (key, mark) in &other.created {
+            self.created.entry(key.clone()).or_insert_with(|| mark.clone());
+        }
+        for (key, mark) in &other.test_slots {
+            self.test_slots.entry(key.clone()).or_insert_with(|| mark.clone());
+        }
+        for (key, label) in &other.protected {
+            self.protected.entry(key.clone()).or_insert_with(|| label.clone());
+        }
+        *self != before
     }
 
     /// Drops every record of the slot. True if there was one.
@@ -317,7 +369,7 @@ mod tests {
     #[test]
     fn round_trips_and_ignores_letter_case() {
         let mut settings = Settings::default();
-        settings.record_created(&slot("Save0003.sav"));
+        settings.record_created(&slot("Save0003.sav"), "fedcba9876543210");
         settings.mark_test_slot(&slot("Save0004.sav"), "0123456789abcdef");
         let again = Settings::parse(&settings.to_text());
         assert_eq!(again, settings);
@@ -341,11 +393,12 @@ mod tests {
                     test-slot 76561190000000000/Save0007.sav character=0123456789ABCDEF\n\
                     test-slot 76561190000000000/Save0008.sav character=123\n\
                     allow-everything yes\n\
+                    created 76561190000000000/Save0006.sav character=XYZ\n\
                     \u{feff}created 76561190000000000/Save0005.sav\n";
         let settings = Settings::parse(text);
         assert_eq!(settings.created_slots(), vec![slot("Save0003.sav")]);
         assert!(settings.test_slots().is_empty());
-        assert_eq!(settings.unknown_lines.len(), 9);
+        assert_eq!(settings.unknown_lines.len(), 10);
         // Written again, the unknown lines are still there, and still grant nothing.
         let again = Settings::parse(&settings.to_text());
         assert_eq!(again, settings);
@@ -354,11 +407,46 @@ mod tests {
     }
 
     #[test]
+    fn created_records_name_the_character_and_old_ones_still_read() {
+        let settings = Settings::parse(
+            "created 76561190000000000/Save0003.sav character=fedcba9876543210\n\
+             created 76561190000000000/Save0004.sav\n",
+        );
+        assert_eq!(settings.created_character(&slot("save0003.sav")), Some(Some("fedcba9876543210")));
+        assert_eq!(settings.created_character(&slot("Save0004.sav")), Some(None));
+        assert_eq!(settings.created_character(&slot("Save0005.sav")), None);
+        assert_eq!(Settings::parse(&settings.to_text()), settings);
+        assert!(settings.unknown_lines.is_empty());
+    }
+
+    #[test]
+    fn older_settings_are_merged_in_without_replacing_anything() {
+        let mut new = Settings::parse("save-folder c:\\s\ntest-slot 76561190000000000/Save0004.sav character=1111111111111111\ntheme red\n");
+        let old = Settings::parse(
+            "save-folder c:\\s\n\
+             created 76561190000000000/Save0003.sav character=fedcba9876543210\n\
+             test-slot 76561190000000000/Save0004.sav character=2222222222222222\n\
+             protected 0123456789abcdef Maya\n\
+             theme blue\n",
+        );
+        assert!(new.merge_missing(&old));
+        assert_eq!(new.created_character(&slot("Save0003.sav")), Some(Some("fedcba9876543210")));
+        assert_eq!(new.test_slot_character(&slot("Save0004.sav")), Some("1111111111111111"));
+        assert!(new.is_protected("0123456789abcdef"));
+        assert_eq!(new.theme(), "red");
+        assert!(!new.merge_missing(&old), "nothing new the second time");
+        // Settings about another save folder are not merged.
+        let elsewhere = Settings::parse("save-folder d:\\other\ncreated 76561190000000000/Save0005.sav character=fedcba9876543210\n");
+        assert!(!new.merge_missing(&elsewhere));
+        assert_eq!(new.created_character(&slot("Save0005.sav")), None);
+    }
+
+    #[test]
     fn the_save_folder_line_round_trips() {
         let mut settings = Settings::default();
         assert_eq!(settings.save_folder(), None);
         settings.set_save_folder("c:\\users\\me\\documents\\my games\\borderlands 2\\willowgame\\savedata".to_string());
-        settings.record_created(&slot("Save0003.sav"));
+        settings.record_created(&slot("Save0003.sav"), "fedcba9876543210");
         let again = Settings::parse(&settings.to_text());
         assert_eq!(again, settings);
         assert!(again.save_folder().unwrap().ends_with("my games\\borderlands 2\\willowgame\\savedata"));
@@ -396,7 +484,7 @@ mod tests {
         let path = temp.path().join("VaultKey").join(SETTINGS_FILE_NAME);
         assert_eq!(Settings::load(&path).unwrap(), Settings::default(), "a missing file is the defaults");
         let mut settings = Settings::default();
-        settings.record_created(&slot("Save0003.sav"));
+        settings.record_created(&slot("Save0003.sav"), "fedcba9876543210");
         settings.save(&path).unwrap();
         settings.mark_test_slot(&slot("Save0004.sav"), "0123456789abcdef");
         settings.save(&path).unwrap();

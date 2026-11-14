@@ -172,5 +172,8 @@ export const ITEMS = ITEM_LISTS;
 export const BACKUPS = [
   { id: `${STEAM}/Save0004.sav/20261108-221500Z`, slotId: `${STEAM}/Save0004.sav`, fileName: "Save0004.sav", slot: 4, createdUnix: NOW - 3_600 * 5, createdUtc: "", reason: "Before saving 3 changes", characterName: "Zer0", level: 30, size: 31_337 },
   { id: `${STEAM}/Save0004.sav/20261107-193000Z`, slotId: `${STEAM}/Save0004.sav`, fileName: "Save0004.sav", slot: 4, createdUnix: NOW - 3_600 * 31, createdUtc: "", reason: "Before saving 1 change", characterName: "Zer0", level: 18, size: 30_112 },
+  // A file that is gone (slot 5), and the unreadable Save0006.sav.
+  { id: `${STEAM}/Save0005.sav/20261105-120000Z`, slotId: `${STEAM}/Save0005.sav`, fileName: "Save0005.sav", slot: 5, createdUnix: NOW - 3_600 * 90, createdUtc: "", reason: "Before saving 2 changes", characterName: "Axton", level: 44, size: 33_210 },
+  { id: `${STEAM}/Save0006.sav/20261104-120000Z`, slotId: `${STEAM}/Save0006.sav`, fileName: "Save0006.sav", slot: 6, createdUnix: NOW - 3_600 * 120, createdUtc: "", reason: "Before saving 1 change", characterName: "Salvador", level: 12, size: 28_004 },
   { id: `${STEAM}/Save0004.sav/20261106-090000Z`, slotId: `${STEAM}/Save0004.sav`, fileName: "Save0004.sav", slot: 4, createdUnix: NOW - 3_600 * 65, createdUtc: "", reason: "Before restoring the backup from 2026-11-05 20:10:00 UTC", characterName: "Zer0", level: 1, size: 29_870 },
 ];

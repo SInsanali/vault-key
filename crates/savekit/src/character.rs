@@ -158,11 +158,16 @@ impl SaveDocument {
         String::from_utf8_lossy(self.message.bytes(field::CLASS).unwrap_or_default()).into_owned()
     }
 
-    /// The character name. The game's string encoding is unconfirmed; bytes are read as Latin-1.
+    /// The character name. The game's string encoding is unconfirmed: bytes that are valid
+    /// UTF-8 (as protobuf strings are) are read as UTF-8, and anything else as Latin-1. Plain
+    /// ASCII, the usual case, reads the same either way.
     pub fn name(&self) -> String {
         let appearance = self.submessage(field::APPEARANCE);
         let bytes = appearance.as_ref().and_then(|a| a.bytes(1)).unwrap_or_default();
-        bytes.iter().map(|&b| char::from(b)).collect()
+        match std::str::from_utf8(bytes) {
+            Ok(text) => text.to_string(),
+            Err(_) => bytes.iter().map(|&b| char::from(b)).collect(),
+        }
     }
 
     pub fn save_game_id(&self) -> i64 {
@@ -223,17 +228,16 @@ impl SaveDocument {
 
     // Name and ID
 
-    /// Sets the character name. It is written as Latin-1, so every character must be U+00FF
-    /// or below.
+    /// Sets the character name. Only printable ASCII is written: the game's string encoding
+    /// is unconfirmed, and ASCII is the same bytes in every encoding it might use.
     pub fn set_name(&mut self, name: &str) -> Result<()> {
         if name.is_empty() {
             return Err(invalid("name", "must not be empty"));
         }
-        let bytes = name
-            .chars()
-            .map(|c| u8::try_from(u32::from(c)))
-            .collect::<std::result::Result<Vec<u8>, _>>()
-            .map_err(|_| invalid("name", "contains characters outside Latin-1"))?;
+        if !name.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
+            return Err(invalid("name", "contains characters other than ASCII letters, digits, spaces and punctuation"));
+        }
+        let bytes = name.as_bytes().to_vec();
         self.edit(|m| edit_sub(m, field::APPEARANCE, |a| a.set_single(1, ProtoValue::Bytes(bytes))))
     }
 

@@ -7,4 +7,7 @@ mod upackage;
 
 pub use file::{decompress, read_package, PACKAGE_TAG};
 pub use properties::{Property, PropertyList, PropertyValue};
-pub use upackage::{ExportEntry, ImportEntry, UPackage, SUPPORTED_LICENSEE, SUPPORTED_VERSION};
+pub use upackage::{
+    ExportEntry, ImportEntry, UPackage, MAX_NAME_LENGTH, MAX_PATH_LENGTH, SUPPORTED_LICENSEE,
+    SUPPORTED_VERSION,
+};

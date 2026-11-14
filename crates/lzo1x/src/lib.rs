@@ -4,6 +4,8 @@
 //! Used for save files (`docs/format/bl2-save-format.md` section 2) and for the
 //! game's package files (`docs/research/2026-11-08-game-data-spike.md` section 2).
 
+#![forbid(unsafe_code)]
+
 use std::fmt;
 
 /// Why a stream could not be decompressed.

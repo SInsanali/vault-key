@@ -236,7 +236,7 @@ fn player_and_grenade_mod_class_defaults() {
                 && is_instigated(&e.object_name)
                 && engine.path_of(e.outer).ok().as_deref() == Some("Controller")
         })
-        .map(|(_, e)| e.object_name.clone())
+        .map(|(_, e)| e.object_name.to_string())
         .collect();
     assert!(declared.len() >= 20, "{declared:?}");
     for property in &declared {

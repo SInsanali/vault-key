@@ -91,6 +91,23 @@ export async function run({ state, actions }) {
       return `${resources.length} files, ${fonts} of them fonts, all from ${location.origin}; secure context: ${window.isSecureContext}`;
     });
 
+    await step("the window takes commands only from its own page, and runs only its own code", async () => {
+      // A GET (what a link or an <img> from elsewhere would send) does nothing.
+      const get = await fetch("/api/ping");
+      same(get.status, 403, "status of a GET to the API");
+      // The page's content-security policy forbids running strings as code.
+      let ran = true;
+      try {
+        new Function("return 1")();
+      } catch {
+        ran = false;
+      }
+      check(!ran, "a string was run as code");
+      const policy = (await fetch("index.html")).headers.get("Content-Security-Policy") ?? "";
+      check(policy.includes("default-src 'self'"), `content-security policy: "${policy}"`);
+      return `GET refused (403); ${policy.split(";")[0]}`;
+    });
+
     await step("item names load from the game", async () => {
       const started = Date.now();
       let now = await call("status");
@@ -398,6 +415,33 @@ export async function run({ state, actions }) {
       same(state.backups.length, 2, "backups after the restore (the restore backs up first)");
       const reopened = await call("open_character", { slotId: memo.newSlotId });
       same(reopened.current.eridium, memo.eridiumBefore, "eridium on disk after the restore");
+    });
+
+    await step("a backup can be deleted, after asking, and nothing else goes with it", async () => {
+      await actions.setTab("backups");
+      const before = state.backups.length;
+      const oldest = state.backups[before - 1];
+      document.querySelector(`[data-fk="delete-${CSS.escape(oldest.id)}"]`).click();
+      same(state.sheet?.type, "delete-backup", "the sheet after Delete");
+      check(await actions.confirmDeleteBackup(), state.sheet?.error ?? "the delete failed");
+      same(state.backups.length, before - 1, "backups after deleting one");
+      check(!state.backups.some((b) => b.id === oldest.id), "the deleted backup is still listed");
+      same((await call("list_backups", { all: true })).backups.length, before - 1, "backups on disk");
+      return `${before} → ${before - 1}`;
+    });
+
+    await step("the list of missing or damaged saves opens, and the open character can be read again", async () => {
+      await actions.openFileBackups();
+      same(state.sheet?.type, "file-backups", "the sheet");
+      check(Array.isArray(state.sheet.backups), "the backups were not loaded");
+      check(count("#sheet [data-fk^='file-backups-']") === 0, "a save in the list is shown as missing");
+      actions.closeSheet();
+      // Choosing the open character again reads its file again.
+      const slotId = state.character.slotId;
+      check(await actions.openCharacter(slotId), "reading the open character again failed");
+      same(state.character.slotId, slotId, "the open character");
+      same(state.character.pendingCount, 0, "pending changes after reading again");
+      return `${state.sheet === null ? "closed" : state.sheet.type}; ${state.character.current.name} read again`;
     });
 
     if (!(await step("level a weapon, move it to the bank and upgrade one ammo type with the buttons, then save in place", async () => {

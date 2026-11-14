@@ -6,7 +6,8 @@
 # llvm-dlltool that scripts/setup-windows-toolchain.sh prepares. No Visual Studio needed.
 # Build output goes to the Windows drive: building over the WSL share is slow.
 set -euo pipefail
-profile="$(wslpath "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')")"
+win_profile="$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')"
+profile="$(wslpath "$win_profile")"
 local_app="$profile/AppData/Local/vault-key"
 dlltool="$(wslpath -w "$local_app/tools/llvm-dlltool.exe")"
 [ -f "$local_app/tools/llvm-dlltool.exe" ] || { echo "missing llvm-dlltool: run scripts/setup-windows-toolchain.sh" >&2; exit 1; }
@@ -15,8 +16,13 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$local_app/target-llvm}"
 export RUSTUP_TOOLCHAIN="stable-x86_64-pc-windows-gnullvm"
 export CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER="rust-lld"
 # Statically link the runtime (no libunwind.dll to ship) and let lld link straight against
-# the system DLLs for the few import libraries the toolchain does not bundle.
+# the system DLLs for the few import libraries the toolchain does not bundle. The source
+# paths compiled into the program (panic messages) are shortened, so that a build made here
+# does not carry the builder's Windows user name or folders.
+repo_win="$(wslpath -w "$(cd "$(dirname "$0")/.." && pwd)")"
 export CARGO_ENCODED_RUSTFLAGS="$(printf '%s\x1f' \
+  --remap-path-prefix "$win_profile=~" \
+  --remap-path-prefix "$repo_win=vault-key" \
   -C linker-flavor=ld.lld \
   -C link-self-contained=yes \
   -C target-feature=+crt-static \

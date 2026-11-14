@@ -179,6 +179,11 @@ impl GameInstall {
     /// Identifies the source packages' contents: hex SHA-256 over the database schema version
     /// and, for each source package in relative-path order, its path, size and content hash.
     /// A changed, added or removed package (a game update, a new DLC) changes the fingerprint.
+    ///
+    /// The base package must be readable. A DLC package that cannot be read counts as
+    /// "unreadable" in place of its size and hash: the import then leaves it out and says so
+    /// (see [`ItemDatabase::skipped_packages`]), and once it can be read again the fingerprint
+    /// changes and it is imported.
     pub fn fingerprint(&self) -> Result<String> {
         self.fingerprint_unless(&AtomicBool::new(false))
     }
@@ -186,6 +191,17 @@ impl GameInstall {
     /// [`GameInstall::fingerprint`], stopping with [`GameDataError::Canceled`] once `cancel`
     /// is set.
     pub(crate) fn fingerprint_unless(&self, cancel: &AtomicBool) -> Result<String> {
+        self.fingerprint_and_unreadable(cancel)
+            .map(|(fingerprint, _)| fingerprint)
+    }
+
+    /// [`GameInstall::fingerprint_unless`], with the DLC packages it found unreadable.
+    pub(crate) fn fingerprint_and_unreadable(
+        &self,
+        cancel: &AtomicBool,
+    ) -> Result<(String, Vec<PathBuf>)> {
+        let startup = self.startup_package();
+        let mut unreadable = Vec::new();
         let mut packages: Vec<(String, PathBuf)> = self
             .source_packages()
             .into_iter()
@@ -196,25 +212,41 @@ impl GameInstall {
         hasher.update(format!("schema {}\n", ItemDatabase::SCHEMA_VERSION).as_bytes());
         let mut buffer = vec![0u8; 1 << 20];
         for (relative, path) in packages {
-            let missing = |_| GameDataError::InstallNotFound(path.display().to_string());
-            let mut file = File::open(&path).map_err(missing)?;
-            let size = file.metadata().map_err(missing)?.len();
-            hasher.update(format!("{relative}\n{size}\n").as_bytes());
-            let mut contents = Sha256::new();
-            loop {
-                if cancel.load(Ordering::Relaxed) {
-                    return Err(GameDataError::Canceled);
+            match file_digest(&path, &mut buffer, cancel) {
+                Ok((size, digest)) => {
+                    hasher.update(format!("{relative}\n{size}\n").as_bytes());
+                    hasher.update(&digest);
                 }
-                let n = file.read(&mut buffer).map_err(missing)?;
-                if n == 0 {
-                    break;
+                Err(GameDataError::Canceled) => return Err(GameDataError::Canceled),
+                Err(e) if path == startup => return Err(e),
+                Err(_) => {
+                    hasher.update(format!("{relative}\nunreadable\n").as_bytes());
+                    unreadable.push(path);
                 }
-                contents.update(&buffer[..n]);
             }
-            hasher.update(&contents.finalize());
         }
-        Ok(hex(&hasher.finalize()))
+        Ok((hex(&hasher.finalize()), unreadable))
     }
+}
+
+/// A file's size and the SHA-256 of its contents, read through `buffer`. A file that cannot
+/// be opened or read is [`GameDataError::InstallNotFound`].
+fn file_digest(path: &Path, buffer: &mut [u8], cancel: &AtomicBool) -> Result<(u64, [u8; 32])> {
+    let missing = |_| GameDataError::InstallNotFound(path.display().to_string());
+    let mut file = File::open(path).map_err(missing)?;
+    let size = file.metadata().map_err(missing)?.len();
+    let mut contents = Sha256::new();
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(GameDataError::Canceled);
+        }
+        let n = file.read(buffer).map_err(missing)?;
+        if n == 0 {
+            break;
+        }
+        contents.update(&buffer[..n]);
+    }
+    Ok((size, contents.finalize()))
 }
 
 /// The values of every `"key" "value"` line in Valve's text format (`.vdf`, `.acf`), with the

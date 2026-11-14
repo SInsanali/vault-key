@@ -19,6 +19,8 @@
 //! Format reference: `docs/research/2026-11-08-game-data-spike.md`; what was verified on the
 //! Windows build: `docs/research/2026-11-09-windows-game-data.md`.
 
+#![forbid(unsafe_code)]
+
 mod database;
 mod error;
 mod extract;

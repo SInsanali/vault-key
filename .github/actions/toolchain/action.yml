@@ -21,7 +21,11 @@ runs:
         Copy-Item (Join-Path $bin "libgcc_s_seh-1.dll"), (Join-Path $bin "libwinpthread-1.dll") $tools
         $dlltool = Join-Path $tools "llvm-dlltool.exe"
         if ($dlltool -match "\s") { throw "The tools folder has a space in its path: $dlltool" }
-        $flags = "-C linker-flavor=ld.lld -C link-self-contained=yes -C target-feature=+crt-static -C link-arg=-LC:\Windows\System32 -C dlltool=$dlltool"
+        # Source paths in panic messages are shortened, so builds do not carry runner folders.
+        $remap = "--remap-path-prefix=$($env:USERPROFILE)=~ --remap-path-prefix=$($env:GITHUB_WORKSPACE)=vault-key"
+        # RUSTFLAGS is split at spaces, so a folder with a space in it cannot be remapped.
+        if ("$($env:USERPROFILE)$($env:GITHUB_WORKSPACE)" -match "\s") { $remap = "" }
+        $flags = "-C linker-flavor=ld.lld -C link-self-contained=yes -C target-feature=+crt-static -C link-arg=-LC:\Windows\System32 -C dlltool=$dlltool $remap"
         "RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnullvm" >> $env:GITHUB_ENV
         "CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER=rust-lld" >> $env:GITHUB_ENV
         "RUSTFLAGS=$flags" >> $env:GITHUB_ENV

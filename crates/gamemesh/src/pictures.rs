@@ -25,6 +25,9 @@ pub enum PictureError {
     NothingToDraw,
     /// The weapon's type or some of its parts are not defined in the game files read.
     UnknownParts,
+    /// A hybrid: some part is defined, but made for another kind of item, so the item's model
+    /// has no piece for it. The text names the piece. The game files are fine.
+    Hybrid(String),
     /// A game file is missing, damaged or not laid out as expected. The text says which.
     GameData(String),
 }
@@ -37,16 +40,26 @@ impl PictureError {
             Self::NotAWeapon => "Story and mission items have no picture.",
             Self::NothingToDraw => "This item has no model to draw.",
             Self::UnknownParts => "The game files do not define some of this item's parts.",
+            Self::Hybrid(_) => "Some of this item's parts are made for another kind of item, so it has no picture.",
             Self::GameData(_) => "A game file is missing or not as expected, so the picture could not be made.",
+        }
+    }
+
+    /// The detail behind the sentence, for a log: which piece or which file. `None` when the
+    /// sentence says it all.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Self::Hybrid(detail) | Self::GameData(detail) => Some(detail),
+            _ => None,
         }
     }
 }
 
 impl std::fmt::Display for PictureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::GameData(detail) => write!(f, "{} ({detail})", self.message()),
-            _ => f.write_str(self.message()),
+        match self.detail() {
+            Some(detail) => write!(f, "{} ({detail})", self.message()),
+            None => f.write_str(self.message()),
         }
     }
 }
@@ -259,12 +272,20 @@ impl Pictures {
     pub fn assembly_image(&mut self, assembly: &crate::Assembly, width: u32, height: u32) -> Result<Image, PictureError> {
         let game_data = |e: MeshError| PictureError::GameData(e.to_string());
         let gestalt = self.source.gestalt(&assembly.gestalt).map_err(game_data)?;
-        let (mut scene, missing) = weapon_scene(gestalt, assembly);
+        let (mut scene, missing) = weapon_scene(gestalt, assembly).map_err(game_data)?;
         if assembly.fragments().map(|(_, name)| name).eq([crate::weapon::WHOLE_MESH]) {
             face_camera(&mut scene);
         }
+        // A piece this model lacks but another model has: a part made for another kind of
+        // item (a hybrid). A piece no model has: the game files are not as expected.
         if let Some(name) = missing.first() {
-            return Err(PictureError::GameData(format!("{} has no fragment {name}", assembly.gestalt)));
+            let detail = format!("{} has no fragment {name}", assembly.gestalt);
+            let elsewhere = self
+                .source
+                .gestalt_paths()
+                .filter_map(|path| self.source.gestalt(path).ok())
+                .any(|other| other.fragments_named(name).next().is_some());
+            return Err(if elsewhere { PictureError::Hybrid(detail) } else { PictureError::GameData(detail) });
         }
         if scene.triangles.is_empty() {
             return Err(PictureError::NothingToDraw);

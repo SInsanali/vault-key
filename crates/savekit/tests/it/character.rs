@@ -78,15 +78,33 @@ fn rejects_out_of_range_values() {
 fn name_round_trip_preserves_other_subfields() {
     for (label, mut doc) in sample_docs() {
         let before = submessage(&doc, field::APPEARANCE);
-        doc.set_name("Z\u{EB}r0").unwrap();
+        doc.set_name("Zer0 the Ninja!").unwrap();
         let again = round_trip(&doc);
-        assert_eq!(again.name(), "Z\u{EB}r0", "{label}");
+        assert_eq!(again.name(), "Zer0 the Ninja!", "{label}");
         let after = submessage(&again, field::APPEARANCE);
-        // Latin-1: one byte per character.
-        assert_eq!(after.bytes(1), Some(&[b'Z', 0xEB, b'r', b'0'][..]), "{label}");
+        assert_eq!(after.bytes(1), Some(&b"Zer0 the Ninja!"[..]), "{label}");
+        // Only ASCII is written: the game's encoding for anything else is unconfirmed.
+        assert!(doc.clone().set_name("Z\u{EB}r0").is_err(), "{label}");
+        assert!(doc.clone().set_name("Zer0\u{1F525}").is_err(), "{label}");
+        assert!(doc.clone().set_name("Zer0\n").is_err(), "{label}");
         let others = |m: &ProtoMessage| m.fields.iter().filter(|f| f.number != 1).cloned().collect::<Vec<_>>();
         assert_eq!(others(&after), others(&before), "{label}");
     }
+}
+
+#[test]
+fn names_are_read_as_utf8_when_they_are_and_latin1_otherwise() {
+    let (_, doc) = sample_docs().into_iter().next().unwrap();
+    let with_name = |bytes: &[u8]| {
+        let mut message = doc.message.clone();
+        let mut appearance = ProtoMessage::decode(message.bytes(field::APPEARANCE).unwrap()).unwrap();
+        appearance.set_single(1, ProtoValue::Bytes(bytes.to_vec()));
+        message.set_single(field::APPEARANCE, ProtoValue::Bytes(appearance.encode()));
+        SaveDocument::new(message).name()
+    };
+    assert_eq!(with_name("Z\u{EB}r0".as_bytes()), "Z\u{EB}r0");
+    assert_eq!(with_name(&[b'Z', 0xEB, b'r', b'0']), "Z\u{EB}r0");
+    assert_eq!(with_name(b"Maya"), "Maya");
 }
 
 #[test]

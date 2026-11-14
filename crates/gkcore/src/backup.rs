@@ -204,10 +204,34 @@ impl BackupStore {
         read_backup(&folder, &slot_id, name).map(|(_, _, info)| info).ok_or_else(missing)
     }
 
+    /// Deletes a backup: its two files and its folder. Nothing else is touched: a folder that
+    /// holds anything more, or is a link, is refused.
+    pub fn delete(&self, id: &str) -> Result<()> {
+        let info = self.find(id)?;
+        let folder = Path::new(&info.path).parent().map(Path::to_path_buf).unwrap_or_default();
+        let refused = |why: String| CoreError::new(ErrorKind::BadBackup, format!("The backup was not deleted: {why}."));
+        let meta = fs::symlink_metadata(&folder).map_err(|e| refused(e.to_string()))?;
+        if !meta.is_dir() || meta.file_type().is_symlink() {
+            return Err(refused("its folder is not a plain folder".to_string()));
+        }
+        let names: Vec<String> = fs::read_dir(&folder)
+            .map_err(|e| refused(e.to_string()))?
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        if names.iter().any(|name| name != &info.file_name && name != INFO_FILE_NAME) {
+            return Err(refused(format!("{} holds other files", folder.display())));
+        }
+        for name in &names {
+            fs::remove_file(folder.join(name)).map_err(|e| refused(e.to_string()))?;
+        }
+        fs::remove_dir(&folder).map_err(|e| refused(e.to_string()))
+    }
+
     /// The bytes of a backup, checked against the SHA-1 recorded when it was taken.
     pub fn read(&self, info: &BackupInfo) -> Result<Vec<u8>> {
         let checked = self.find(&info.id)?;
-        let bytes = fs::read(&checked.path).map_err(|e| {
+        let bytes = guards::read_save_file(Path::new(&checked.path)).map_err(|e| {
             CoreError::new(ErrorKind::BadBackup, format!("Cannot read the backup {}: {e}", checked.path))
         })?;
         if let Some(recorded) = &checked.sha1 {
@@ -418,6 +442,22 @@ mod tests {
         assert_eq!(fs::read(&root).unwrap(), b"in the way");
         assert_eq!(file_names(temp.path()), ["backups"]);
         assert!(store.list().is_empty());
+    }
+
+    #[test]
+    fn a_backup_can_be_deleted_and_nothing_else_is() {
+        let temp = TempDir::new();
+        let store = BackupStore::new(temp.path().join("backups"), time::fixed_clock(NOW));
+        let first = store.create(&slot("Save0002.sav"), &original(), b"one", "a").unwrap();
+        let second = store.create(&slot("Save0002.sav"), &original(), b"two", "b").unwrap();
+        store.delete(&first.id).unwrap();
+        assert_eq!(store.list().iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), [second.id.as_str()]);
+        assert_eq!(store.delete(&first.id).unwrap_err().kind, ErrorKind::NoSuchBackup);
+        // A folder with something else in it is left alone.
+        let folder = Path::new(&second.path).parent().unwrap().to_path_buf();
+        fs::write(folder.join("notes.txt"), b"mine").unwrap();
+        assert_eq!(store.delete(&second.id).unwrap_err().kind, ErrorKind::BadBackup);
+        assert!(folder.join("notes.txt").is_file() && Path::new(&second.path).is_file());
     }
 
     #[test]

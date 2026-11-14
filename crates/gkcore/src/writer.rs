@@ -1,4 +1,5 @@
-//! The safe write path: the one function through which every write to SaveData goes.
+//! The safe write path: the one function through which every write the app makes to SaveData
+//! goes (the developer tool's `gk install` is the only other, see the crate documentation).
 //!
 //! [`safe_write`] runs these steps in order and stops at the first failure with nothing
 //! changed:
@@ -18,6 +19,12 @@
 //! policy is "a free slot, 2 to 9, with a save-game ID equal to the slot and used by no
 //! other save", there is nothing to back up, and step 7 places the file so that it cannot
 //! replace anything.
+//!
+//! Restoring a backup ([`WriteMode::Restore`]) puts a file back where it was taken from. Over
+//! a readable file it follows the rules for replacing; over a file that cannot be read it may
+//! replace it whatever the marks say (there is no character there to keep, and it is backed
+//! up first); and a file that is gone is re-created under its own name, as long as no other
+//! save uses its save-game ID.
 
 use std::fs;
 use std::io::Write;
@@ -217,6 +224,21 @@ pub(crate) enum WriteMode<'a> {
     Replace { expected_on_disk: &'a [u8] },
     /// Create the file for this slot, which must be free.
     CreateNew { slot: u32 },
+    /// Put a backup back: over the file, which must still hold these bytes, or (`None`) as
+    /// the file it was taken from, which must be gone.
+    Restore { expected_on_disk: Option<&'a [u8]> },
+}
+
+impl WriteMode<'_> {
+    /// The bytes that must be on disk now, when a file is replaced.
+    fn replacing(&self) -> Option<&[u8]> {
+        match self {
+            WriteMode::Replace { expected_on_disk } | WriteMode::Restore { expected_on_disk: Some(expected_on_disk) } => {
+                Some(expected_on_disk)
+            }
+            WriteMode::CreateNew { .. } | WriteMode::Restore { expected_on_disk: None } => None,
+        }
+    }
 }
 
 pub(crate) struct WriteRequest<'a> {
@@ -362,6 +384,22 @@ fn check_new_slot(env: &WriteEnv, req: &WriteRequest, slot: u32, dir: &Path, tar
     }
 }
 
+/// Step 1 for putting back a file that is gone: it goes back under its own standard name,
+/// and only if no other save in the folder uses its save-game ID.
+fn check_recreated(req: &WriteRequest, dir: &Path, target: &Path, new: &SaveDocument) -> Result<()> {
+    if req.slot_id.slot().is_none() {
+        return fail(ErrorKind::InvalidTarget, policy::NOT_A_SLOT_MESSAGE);
+    }
+    if fs::symlink_metadata(target).is_ok() {
+        return fail(ErrorKind::SlotTaken, format!("{} is there now. Nothing was changed.", req.slot_id.file_name()));
+    }
+    let id = new.save_game_id();
+    match neighbour_using_id(dir, req.slot_id.file_name(), id)? {
+        Some(other) => Err(collision(&other, id)),
+        None => Ok(()),
+    }
+}
+
 fn unverified(why: impl std::fmt::Display) -> CoreError {
     CoreError::new(
         ErrorKind::VerificationFailed,
@@ -376,7 +414,7 @@ pub(crate) fn safe_write(env: &WriteEnv, req: &WriteRequest, on_step: &mut dyn F
     // 1. Policy.
     on_step(WriteStep::Policy);
     let (dir, target) = resolve_target(env.save_root, req.slot_id)?;
-    if let WriteMode::Replace { expected_on_disk } = req.mode {
+    if let Some(expected_on_disk) = req.mode.replacing() {
         // A test-slot mark covers one character. Which character is in the file is read from
         // the bytes the caller expects on disk; step 3 refuses if the file holds anything else.
         // If those bytes are not a readable save (a damaged file), the mark still covers
@@ -388,13 +426,20 @@ pub(crate) fn safe_write(env: &WriteEnv, req: &WriteRequest, on_step: &mut dyn F
             return fail(ErrorKind::ReadOnly, policy::PROTECTED_MESSAGE);
         }
         let character = on_disk.as_ref().or(incoming.as_ref()).map(policy::character_mark);
-        if let WriteAccess::ReadOnly(why) = policy::access(env.settings, req.slot_id, character.as_deref()) {
-            return fail(ErrorKind::ReadOnly, why);
+        // A backup may always go back over a file that cannot be read: there is no character
+        // in it to keep, and it is backed up first.
+        let restoring_over_damage = matches!(req.mode, WriteMode::Restore { .. }) && on_disk.is_none();
+        if !restoring_over_damage {
+            if let WriteAccess::ReadOnly(why) = policy::access(env.settings, req.slot_id, character.as_deref()) {
+                return fail(ErrorKind::ReadOnly, why);
+            }
         }
     }
     let new = SaveDocument::from_file_bytes(req.payload).map_err(unverified)?;
-    if let WriteMode::CreateNew { slot } = req.mode {
-        check_new_slot(env, req, slot, &dir, &target, &new)?;
+    match req.mode {
+        WriteMode::CreateNew { slot } => check_new_slot(env, req, slot, &dir, &target, &new)?,
+        WriteMode::Restore { expected_on_disk: None } => check_recreated(req, &dir, &target, &new)?,
+        WriteMode::Replace { .. } | WriteMode::Restore { expected_on_disk: Some(_) } => {}
     }
 
     // 2. The game must be closed.
@@ -403,8 +448,8 @@ pub(crate) fn safe_write(env: &WriteEnv, req: &WriteRequest, on_step: &mut dyn F
 
     // 3. The file must be what the caller started from.
     on_step(WriteStep::UnchangedCheck);
-    let current: Option<Vec<u8>> = match req.mode {
-        WriteMode::Replace { expected_on_disk } => {
+    let current: Option<Vec<u8>> = match req.mode.replacing() {
+        Some(expected_on_disk) => {
             let on_disk = fs::read(&target).map_err(|e| {
                 let what = if e.kind() == std::io::ErrorKind::NotFound {
                     "This save file is no longer there".to_string()
@@ -429,12 +474,15 @@ pub(crate) fn safe_write(env: &WriteEnv, req: &WriteRequest, on_step: &mut dyn F
             }
             Some(on_disk)
         }
-        WriteMode::CreateNew { slot } => {
+        None => {
             if fs::symlink_metadata(&target).is_ok() {
-                return fail(
-                    ErrorKind::SlotTaken,
-                    format!("Slot {slot} already has a character ({}). Pick a free slot.", req.slot_id.file_name()),
-                );
+                let message = match req.mode {
+                    WriteMode::CreateNew { slot } => {
+                        format!("Slot {slot} already has a character ({}). Pick a free slot.", req.slot_id.file_name())
+                    }
+                    _ => format!("{} is there now. Nothing was changed.", req.slot_id.file_name()),
+                };
+                return fail(ErrorKind::SlotTaken, message);
             }
             None
         }
@@ -477,17 +525,21 @@ pub(crate) fn safe_write(env: &WriteEnv, req: &WriteRequest, on_step: &mut dyn F
     // 7. Put it in place, in one step. The game is checked once more first.
     on_step(WriteStep::Replace);
     check_game(env)?;
-    match req.mode {
-        WriteMode::Replace { .. } => fs::rename(&temp.0, &target).map_err(|e| {
+    match req.mode.replacing() {
+        Some(_) => fs::rename(&temp.0, &target).map_err(|e| {
             CoreError::new(
                 ErrorKind::ReplaceFailed,
                 format!("Could not put the new save in place, so nothing was changed ({e})."),
             )
         })?,
-        // A hard link fails if the name is taken, so a new character can never replace a file.
-        WriteMode::CreateNew { slot } => fs::hard_link(&temp.0, &target).map_err(|e| {
+        // A hard link fails if the name is taken, so a new file can never replace one.
+        None => fs::hard_link(&temp.0, &target).map_err(|e| {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
-                CoreError::new(ErrorKind::SlotTaken, format!("Slot {slot} was taken while saving. Nothing was changed."))
+                let message = match req.mode {
+                    WriteMode::CreateNew { slot } => format!("Slot {slot} was taken while saving. Nothing was changed."),
+                    _ => format!("{} was created by something else while saving. Nothing was changed.", req.slot_id.file_name()),
+                };
+                CoreError::new(ErrorKind::SlotTaken, message)
             } else {
                 CoreError::new(
                     ErrorKind::ReplaceFailed,
@@ -593,7 +645,7 @@ mod tests {
         /// The slot file's id, recorded as created by the app.
         fn writable(&mut self, file: &str) -> SlotId {
             let slot = SlotId::new(STEAM_ID, file).unwrap();
-            self.settings.record_created(&slot);
+            self.settings.record_created(&slot, &policy::character_mark(&sample_doc(1)));
             slot
         }
     }
@@ -749,7 +801,7 @@ mod tests {
         let edit = money_edit(3);
         // A Steam-ID folder that is not there.
         let elsewhere = SlotId::new("111", "Save0003.sav").unwrap();
-        world.settings.record_created(&elsewhere);
+        world.settings.record_created(&elsewhere, &policy::character_mark(&sample_doc(3)));
         let (result, steps) = run(&world, &edit.replace(&elsewhere, &original));
         assert_eq!(result.unwrap_err().kind, ErrorKind::InvalidTarget);
         assert_eq!(steps, [WriteStep::Policy]);
@@ -771,7 +823,7 @@ mod tests {
             return;
         }
         let linked = SlotId::new("222", "Save0003.sav").unwrap();
-        world.settings.record_created(&linked);
+        world.settings.record_created(&linked, &policy::character_mark(&sample_doc(3)));
         let (result, _) = run(&world, &edit.replace(&linked, &original));
         let error = result.unwrap_err();
         assert_eq!(error.kind, ErrorKind::InvalidTarget, "{}", error.message);

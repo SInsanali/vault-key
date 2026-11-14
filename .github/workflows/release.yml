@@ -3,33 +3,45 @@ name: Release
 # A tag such as v0.9.0 builds the program, the installer and the portable zip, checks the
 # installer on the runner, and publishes a GitHub Release with notes from CHANGELOG.md.
 # "Run workflow" does everything except publish: the files are kept as a workflow artifact.
+#
+# Building runs with a read-only token that is not left on disk, so nothing the build runs
+# (build scripts of dependencies, the tests) can change the repository or the release. Only
+# the publish job, which runs no project code, can write. Actions are pinned by commit.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   INNO_SETUP_VERSION: "7.1.1"
   INNO_SETUP_SHA256: "8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0"
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/toolchain
 
       - name: Version
         id: version
         shell: pwsh
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           $line = Get-Content Cargo.toml | Where-Object { $_ -match '^version\s*=\s*"([^"]+)"' } | Select-Object -First 1
           $version = [regex]::Match($line, '"([^"]+)"').Groups[1].Value
-          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$version") {
-            throw "The tag ${{ github.ref_name }} does not match version $version in Cargo.toml."
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Cargo.toml's version '$version' is not a plain version number." }
+          if ($env:REF_TYPE -eq "tag" -and $env:REF_NAME -ne "v$version") {
+            throw "The tag $($env:REF_NAME) does not match version $version in Cargo.toml."
           }
           "version=$version" >> $env:GITHUB_OUTPUT
 
@@ -51,7 +63,7 @@ jobs:
       # Not yet tried: check the action's current inputs before switching it on.
       - name: Sign the program
         if: env.AZURE_CLIENT_ID != ''
-        uses: azure/trusted-signing-action@v0
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0.5.11
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         with:
@@ -85,7 +97,7 @@ jobs:
 
       - name: Sign the installer
         if: env.AZURE_CLIENT_ID != ''
-        uses: azure/trusted-signing-action@v0
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0.5.11
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         with:
@@ -114,21 +126,16 @@ jobs:
 
       - name: Check the installer
         shell: pwsh
-        run: packaging\installer-check.ps1 -Setup dist\release\VaultKey-Setup-${{ steps.version.outputs.version }}.exe -Version ${{ steps.version.outputs.version }} -DeleteData
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: packaging\installer-check.ps1 -Setup "dist\release\VaultKey-Setup-$($env:VERSION).exe" -Version $env:VERSION -DeleteData
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: VaultKey-${{ steps.version.outputs.version }}
-          path: dist/release/
-          if-no-files-found: error
-
-      - name: Publish the release
-        if: github.ref_type == 'tag'
+      - name: Release notes
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $version = "${{ steps.version.outputs.version }}"
+          $version = $env:VERSION
           # The notes are this version's section of CHANGELOG.md.
           $notes = New-Object System.Collections.Generic.List[string]
           $inside = $false
@@ -140,6 +147,44 @@ jobs:
             }
             if ($inside) { $notes.Add($line) }
           }
-          if ($notes.Count -eq 0) { throw "CHANGELOG.md has no section for $version." }
-          $notes -join "`n" | Set-Content release-notes.md -Encoding utf8
-          gh release create "${{ github.ref_name }}" (Get-ChildItem dist\release -File).FullName --title "Vault Key $version" --notes-file release-notes.md --verify-tag
+          # Needed only to publish; a "Run workflow" build may come before the notes are written.
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $notes.Count -eq 0) { throw "CHANGELOG.md has no section for $version." }
+          if ($notes.Count -eq 0) { $notes.Add("No notes for $version yet.") }
+          New-Item -ItemType Directory -Force dist\notes | Out-Null
+          $notes -join "`n" | Set-Content dist\notes\release-notes.md -Encoding utf8
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: VaultKey-${{ steps.version.outputs.version }}
+          path: dist/release/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-notes
+          path: dist/notes/release-notes.md
+          if-no-files-found: error
+
+  # Publishing: the only job that can write, and it runs nothing from the repository.
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: VaultKey-${{ needs.build.outputs.version }}
+          path: release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-notes
+          path: notes
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: gh release create "$TAG" release/* --repo "$REPO" --title "Vault Key $VERSION" --notes-file notes/release-notes.md --verify-tag

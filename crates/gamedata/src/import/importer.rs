@@ -42,6 +42,9 @@ fn check(cancel: &AtomicBool) -> Result<()> {
 
 /// Returns the item database for `install`: the cached one when the cache holds a database
 /// built from exactly these package files, otherwise a fresh import that is then cached.
+/// A fresh database that cannot be cached is still returned, with the reason in
+/// [`ItemDatabase::cache_problem`]. A DLC package that cannot be read is left out and named in
+/// [`ItemDatabase::skipped_packages`]; only the base package is required.
 ///
 /// `progress` is called as the work advances. Setting `cancel` (from another thread, or from
 /// inside `progress`) stops the import with [`GameDataError::Canceled`]; a canceled import
@@ -76,7 +79,7 @@ pub(crate) fn run(
     let mut report = |phase, fraction| progress(ImportProgress { phase, fraction });
     check(cancel)?;
     report(ImportPhase::Fingerprinting, 0.0);
-    let fingerprint = install.fingerprint_unless(cancel)?;
+    let (fingerprint, unreadable) = install.fingerprint_and_unreadable(cancel)?;
     if let Some(hit) = cache.and_then(|c| c.load(&fingerprint)) {
         report(ImportPhase::Done, 1.0);
         return Ok(hit);
@@ -94,6 +97,9 @@ pub(crate) fn run(
     let mut done = 0.0;
     let mut packages = Vec::with_capacity(sources.len());
     let mut skipped = Vec::new();
+    // A package the fingerprint read but the import could not: the fingerprint does not
+    // describe what was built, so the result is not cached.
+    let mut vanished = None;
     for (i, (path, size)) in sources.iter().enumerate() {
         check(cancel)?;
         let name = path
@@ -109,6 +115,12 @@ pub(crate) fn run(
             Ok(package) => packages.push(package),
             // The base package is required. A DLC package that cannot be read is left out.
             Err(e) if i == 0 => return Err(e),
+            Err(GameDataError::InstallNotFound(_)) => {
+                skipped.push(format!("{name}: the file could not be read"));
+                if !unreadable.contains(path) {
+                    vanished.get_or_insert(name);
+                }
+            }
             Err(e) => skipped.push(format!("{name}: {e}")),
         }
         done += size;
@@ -121,9 +133,16 @@ pub(crate) fn run(
     db.skipped_packages = skipped;
     checkpoint(Checkpoint::Built);
     check(cancel)?;
+    // The database is complete either way: a cache that cannot be written only means it is
+    // built again next time.
     if let Some(cache) = cache {
         report(ImportPhase::Saving, 0.95);
-        cache.store(&db)?;
+        db.cache_problem = match vanished {
+            Some(name) => Some(format!(
+                "not saved: {name} could not be read during the import"
+            )),
+            None => cache.store(&db).err().map(|e| e.to_string()),
+        };
     }
     report(ImportPhase::Done, 1.0);
     Ok(db)
@@ -304,6 +323,80 @@ mod tests {
         assert!(!phases.contains(&ImportPhase::Saving));
         assert_eq!(phases.last(), Some(&ImportPhase::Done));
         assert!(snapshot(tmp.path()) == before, "files changed");
+    }
+
+    #[test]
+    fn a_cache_that_cannot_be_written_keeps_the_database() {
+        let tmp = TempDir::new();
+        let install = game(&tmp);
+        let cache = DatabaseCache::new(tmp.path().join("cache"), &install).unwrap();
+        // The cache folder turns into a file after the cache was set up.
+        std::fs::remove_dir_all(cache.directory()).unwrap();
+        std::fs::write(cache.directory(), b"in the way").unwrap();
+
+        let mut phases = Vec::new();
+        let db = load_or_import(&install, &cache, &mut |p| phases.push(p.phase), &never())
+            .unwrap();
+        let problem = db.cache_problem.clone().expect("the failed save is reported");
+        assert!(problem.starts_with("cache unreadable: "), "{problem}");
+        assert_eq!(phases.last(), Some(&ImportPhase::Done));
+        // The same database as an import without a cache.
+        let mut plain = import(&install, &mut |_| {}, &never()).unwrap();
+        assert_eq!(plain.cache_problem, None);
+        plain.cache_problem = Some(problem);
+        assert_eq!(db, plain);
+    }
+
+    /// Opens `path` so that no one else can open it until the handle is dropped, as another
+    /// program (an anti-virus scan, a game update) may.
+    #[cfg(windows)]
+    fn lock(path: &Path) -> std::fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(path)
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_dlc_package_that_cannot_be_opened_is_skipped() {
+        let tmp = TempDir::new();
+        let install = game(&tmp);
+        let cache = DatabaseCache::new(tmp.path().join("cache"), &install).unwrap();
+        let tulip = install.dlc_startup_packages()[0].clone();
+        let readable = install.fingerprint().unwrap();
+
+        let held = lock(&tulip);
+        let fingerprint = install.fingerprint().unwrap();
+        assert_ne!(fingerprint, readable);
+        let db = load_or_import(&install, &cache, &mut |_| {}, &never()).unwrap();
+        assert_eq!(db.sets.keys().copied().collect::<Vec<_>>(), [0]);
+        assert_eq!(
+            db.skipped_packages,
+            ["Tulip_Startup_SF.upk: the file could not be read"]
+        );
+        // Cached under a fingerprint that says the package was unreadable.
+        assert_eq!(db.cache_problem, None);
+        assert_eq!(
+            files(cache.directory()),
+            [DatabaseCache::file_name(&fingerprint)]
+        );
+
+        // Readable again: a new fingerprint, and the DLC is in.
+        drop(held);
+        let db = load_or_import(&install, &cache, &mut |_| {}, &never()).unwrap();
+        assert_eq!(db.fingerprint, readable);
+        assert_eq!(db.sets.len(), 2);
+        assert!(db.skipped_packages.is_empty());
+
+        // The base package is still required.
+        let _held = lock(&install.startup_package());
+        assert!(matches!(
+            load_or_import(&install, &cache, &mut |_| {}, &never()),
+            Err(GameDataError::InstallNotFound(_))
+        ));
     }
 
     #[test]

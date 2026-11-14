@@ -317,8 +317,11 @@ export const actions = {
     renderAll();
   },
 
+  /**
+   * Opens a character. Choosing the one that is open reads its file again (the game may
+   * have saved since), after asking about any unsaved changes.
+   */
   async openCharacter(slotId, { force = false } = {}) {
-    if (state.character?.slotId === slotId && !force) return true;
     if (!force && (state.character?.pendingCount ?? 0) > 0) {
       state.sheet = { type: "drop", thenOpen: slotId };
       renderSheetNow();
@@ -610,10 +613,42 @@ export const actions = {
     }
   },
 
-  askRestore(backup) {
-    state.sheet = { type: "restore", backup, phase: "confirm", error: null };
+  askRestore(backup, { gone = false } = {}) {
+    state.sheet = { type: "restore", backup, gone, phase: "confirm", error: null };
     renderSheetNow();
     actions.refreshStatus(true);
+  },
+
+  askDeleteBackup(backup) {
+    // From the list of missing or damaged saves, the list comes back afterwards.
+    const back = state.sheet?.type === "file-backups";
+    state.sheet = { type: "delete-backup", backup, back, phase: "confirm", error: null };
+    renderSheetNow();
+  },
+
+  async confirmDeleteBackup() {
+    const sheet = state.sheet;
+    if (sheet?.type !== "delete-backup" || sheet.phase === "working") return false;
+    sheet.phase = "working";
+    sheet.error = null;
+    renderSheetNow();
+    try {
+      await call("delete_backup", { backupId: sheet.backup.id });
+    } catch (error) {
+      sheet.phase = "confirm";
+      sheet.error = messageOf(error);
+      renderSheetNow();
+      return false;
+    }
+    toast("ok", "Backup deleted.");
+    if (sheet.back) {
+      await actions.openFileBackups();
+    } else {
+      state.sheet = null;
+      renderSheetNow();
+      await loadBackups();
+    }
+    return true;
   },
 
   async confirmRestore() {
@@ -642,6 +677,22 @@ export const actions = {
 
   openSettings() {
     state.sheet = { type: "settings", error: null };
+    renderSheetNow();
+  },
+
+  /** Backups of save files that are gone or can't be read (they have no Backups tab). */
+  async openFileBackups() {
+    state.sheet = { type: "file-backups", backups: null, error: null };
+    renderSheetNow();
+    try {
+      const answer = await call("list_backups", { all: true });
+      if (state.sheet?.type !== "file-backups") return;
+      state.sheet.backups = answer.backups;
+    } catch (error) {
+      if (state.sheet?.type !== "file-backups") return;
+      state.sheet.backups = [];
+      state.sheet.error = messageOf(error);
+    }
     renderSheetNow();
   },
 

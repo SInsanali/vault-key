@@ -310,13 +310,16 @@ function restoreSheet(state, actions) {
   const backup = sheet.backup;
   const c = state.character;
   const busy = sheet.phase === "working";
-  const pending = c.pendingCount;
+  // Unsaved changes are dropped only when the backup is of the character that is open.
+  const ofOpen = c?.slotId === backup.slotId;
+  const pending = ofOpen ? c.pendingCount : 0;
+  const label = ofOpen ? `Slot ${c.slot} · ${c.current.name}` : backup.fileName;
   return [
     h("div", { class: "hazard" }),
     h(
       "div",
       { class: "sheet-body" },
-      head(`Slot ${c.slot} · ${c.current.name}`, "Restore this backup?", true),
+      head(label, "Restore this backup?", true),
       h(
         "dl",
         { class: "kv" },
@@ -328,7 +331,7 @@ function restoreSheet(state, actions) {
         h("dd", {}, backup.characterName ? `${backup.characterName}, level ${backup.level}` : "Not a readable save"),
       ),
       h("ul", { class: "steps" }, gameStep(state, actions)),
-      h("p", { class: "note" }, "What's there now is backed up first, so you can undo this."),
+      h("p", { class: "note" }, sheet.gone ? `${backup.fileName} is put back where it was. It comes back locked.` : "What's there now is backed up first, so you can undo this."),
       pending > 0 ? h("div", { class: "callout" }, icon("warn", 18, 2.6), h("span", {}, `Your ${plural(pending, "unsaved change", "unsaved changes")} will be dropped.`)) : null,
       sheet.error ? h("div", { class: "callout bad", role: "alert" }, icon("warn", 18, 2.6), h("span", {}, h("strong", {}, "Not restored. "), sheet.error)) : null,
       h(
@@ -336,6 +339,108 @@ function restoreSheet(state, actions) {
         { class: "sheet-actions" },
         skewButton({ class: "btn big", disabled: busy, autofocus: true, dataset: { fk: "cancel" }, onClick: () => actions.closeSheet() }, "Cancel"),
         skewButton({ class: "btn hero", disabled: busy || state.status?.game?.state !== "not-running", dataset: { fk: "go" }, onClick: () => actions.confirmRestore() }, busy ? "Restoring…" : "Restore"),
+      ),
+    ),
+  ];
+}
+
+/**
+ * Backups of save files that are gone or can't be read: those characters have no Backups
+ * tab to restore from, so their backups are listed here.
+ */
+function fileBackupsSheet(state, actions) {
+  const sheet = state.sheet;
+  const known = new Map(state.characters.map((entry) => [entry.slotId, entry]));
+  const groups = new Map();
+  for (const backup of sheet.backups ?? []) {
+    const entry = known.get(backup.slotId);
+    if (entry?.readable) continue;
+    if (!groups.has(backup.slotId)) groups.set(backup.slotId, { entry, backups: [] });
+    groups.get(backup.slotId).backups.push(backup);
+  }
+  let body;
+  if (sheet.backups === null) {
+    body = h("p", { class: "note dim" }, "Looking for backups…");
+  } else if (groups.size === 0) {
+    body = h("p", { class: "note" }, "Every save with backups is in your character list. Open a character and use its Backups tab.");
+  } else {
+    body = [...groups.entries()].map(([slotId, { entry, backups }]) =>
+      h(
+        "div",
+        { class: "sheet-section", dataset: { fk: `file-backups-${slotId}` } },
+        h("h2", {}, `${backups[0].fileName} · ${entry ? "Can't be read" : "Gone"}`),
+        h(
+          "div",
+          { class: "rows", role: "list" },
+          backups.map((backup) =>
+            h(
+              "div",
+              { class: "row backup", role: "listitem" },
+              icon("clock", 22, 2.4),
+              h(
+                "div",
+                { class: "row-text" },
+                h("span", { class: "row-title when" }, formatWhen(backup.createdUnix)),
+                h("span", { class: "row-sub" }, [backup.reason, backup.characterName ? `${backup.characterName}, level ${backup.level}` : "Not a readable save"].filter(Boolean).join(" · ")),
+              ),
+              h(
+                "div",
+                { class: "row-actions" },
+                h(
+                  "button",
+                  { type: "button", class: "btn small yellow", disabled: !backup.characterName, dataset: { fk: `restore-${backup.id}` }, onClick: () => actions.askRestore(backup, { gone: !entry }) },
+                  "Restore",
+                ),
+                h("button", { type: "button", class: "btn small", dataset: { fk: `delete-${backup.id}` }, onClick: () => actions.askDeleteBackup(backup) }, "Delete"),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  return [
+    h("div", { class: "hazard" }),
+    h(
+      "div",
+      { class: "sheet-body" },
+      head(null, "Missing or damaged saves"),
+      h("p", { class: "note" }, "Backups of save files that are gone, or that can't be read. Restoring puts the file back as it was when the backup was taken."),
+      body,
+      sheet_error(state),
+      h("div", { class: "sheet-actions" }, skewButton({ class: "btn big", autofocus: true, dataset: { fk: "done" }, onClick: () => actions.closeSheet() }, "Close")),
+    ),
+  ];
+}
+
+/** Deleting a backup: it can't be undone, so it is asked first. */
+function deleteBackupSheet(state, actions) {
+  const sheet = state.sheet;
+  const backup = sheet.backup;
+  const busy = sheet.phase === "working";
+  return [
+    h("div", { class: "hazard" }),
+    h(
+      "div",
+      { class: "sheet-body" },
+      head(backup.fileName, "Delete this backup?"),
+      h(
+        "dl",
+        { class: "kv" },
+        h("dt", {}, "Taken"),
+        h("dd", {}, formatWhen(backup.createdUnix)),
+        h("dt", {}, "Why"),
+        h("dd", {}, backup.reason || "—"),
+        h("dt", {}, "Holds"),
+        h("dd", {}, backup.characterName ? `${backup.characterName}, level ${backup.level}` : "Not a readable save"),
+      ),
+      h("p", { class: "note" }, "It is gone for good: it can't be restored afterwards. Your save files are not changed."),
+      sheet.error ? h("div", { class: "callout bad", role: "alert" }, icon("warn", 18, 2.6), h("span", {}, h("strong", {}, "Not deleted. "), sheet.error)) : null,
+      h(
+        "div",
+        { class: "sheet-actions" },
+        skewButton({ class: "btn big", disabled: busy, autofocus: true, dataset: { fk: "cancel" }, onClick: () => actions.closeSheet() }, "Cancel"),
+        skewButton({ class: "btn hero", disabled: busy, dataset: { fk: "go" }, onClick: () => actions.confirmDeleteBackup() }, busy ? "Deleting…" : "Delete"),
       ),
     ),
   ];
@@ -415,6 +520,13 @@ function settingsSheet(state, actions) {
       h(
         "div",
         { class: "sheet-section" },
+        h("h2", {}, "Backups"),
+        h("p", { class: "note" }, "Each character's backups are on its Backups tab. A save that is gone, or can't be read, has its backups here."),
+        h("button", { type: "button", class: "btn small", dataset: { fk: "file-backups" }, onClick: () => actions.openFileBackups() }, "Missing or damaged saves…"),
+      ),
+      h(
+        "div",
+        { class: "sheet-section" },
         h("h2", {}, "Colors"),
         h(
           "div",
@@ -480,6 +592,10 @@ function build(state, actions) {
       return restoreSheet(state, actions);
     case "drop":
       return dropSheet(state, actions);
+    case "file-backups":
+      return fileBackupsSheet(state, actions);
+    case "delete-backup":
+      return deleteBackupSheet(state, actions);
     case "settings":
       return settingsSheet(state, actions);
     case "export":

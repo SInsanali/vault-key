@@ -518,6 +518,10 @@ impl SaveDocument {
         }
         let payload = ProtoValue::Varint((-(OP_LEVEL_ID | (level << 8))) as u64);
         let existing = self.op_level_entry();
+        // OP 0 is what a save without the record means already: nothing to add.
+        if level == 0 && existing.is_none() {
+            return Ok(());
+        }
         self.edit(|m| {
             match existing {
                 Some((index, mut entry)) => {

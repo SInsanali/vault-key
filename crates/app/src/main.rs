@@ -17,7 +17,7 @@ mod platform;
 
 use std::borrow::Cow;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -26,16 +26,28 @@ use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::window::{Icon, WindowBuilder};
 use wry::http::{Request, Response, StatusCode};
-use wry::{RequestAsyncResponder, WebContext, WebViewBuilder};
+use wry::{NewWindowResponse, RequestAsyncResponder, WebContext, WebViewBuilder};
 
 /// Set (to anything) to make the app run its self-test and close. See [`selftest_sandbox`].
 const SELFTEST_ENV: &str = "GK_SELFTEST";
-/// For development: an item reference such as `54:0`. The window then opens the first
-/// character with that item selected on the Gear tab (used to capture the window).
+/// For development (debug builds only): an item reference such as `54:0`. The window then
+/// opens the first character with that item selected on the Gear tab (used to capture the
+/// window).
 const SELECT_ENV: &str = "GK_UI_SELECT";
-/// For development: the full path of a save file to open at start, as "Open a save file…"
-/// would (used to capture the window with a file from outside the save folder open).
+/// For development (debug builds only): the full path of a save file to open at start, as
+/// "Open a save file…" would (used to capture the window with a file from outside the save
+/// folder open).
 const OPEN_ENV: &str = "GK_UI_OPEN";
+/// The answer to a command that hit a bug (the panic itself is in the error log).
+const PANIC_MESSAGE: &str = "Something went wrong inside Vault Key, so that was not done. Nothing was saved. The character was closed; open it again to go on. The error log (Settings, Where things are) has the details.";
+/// The only addresses the window may show: the app's own pages. WebView2 serves the `gk`
+/// scheme as `http://gk.localhost/`; the other spelling is what the app asks for.
+const APP_ORIGINS: [&str; 2] = ["http://gk.localhost", "gk://localhost"];
+/// What the app's pages may load and run: their own files only. Styles may be inline
+/// (the page sets custom properties on elements); nothing may be framed or posted away.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+     img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; \
+     frame-ancestors 'none'";
 /// How long the web view may keep a picture. The page puts a per-run token in the address,
 /// so nothing kept here outlives the run that drew it.
 const PICTURE_CACHE_CONTROL: &str = "private, max-age=86400";
@@ -78,6 +90,8 @@ fn respond_cached(status: StatusCode, content_type: &str, cache: &str, body: Cow
         .status(status)
         .header("Content-Type", content_type)
         .header("Cache-Control", cache)
+        .header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        .header("X-Content-Type-Options", "nosniff")
         .body(body)
         .expect("valid response")
 }
@@ -104,7 +118,16 @@ fn serve_pictures(inbox: mpsc::Receiver<(String, RequestAsyncResponder)>) {
         let routes: Vec<&str> = waiting.iter().map(|(route, _)| route.as_str()).collect();
         let Some(next) = pictures::next_request(&routes) else { continue };
         let (route, responder) = waiting.remove(next);
-        responder.respond(picture_response(service.answer(&route)));
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| service.answer(&route)));
+        let response = match answer {
+            Ok(answer) => picture_response(answer),
+            Err(_) => {
+                // Start over with the game's files on the next picture.
+                service = pictures::Service::live();
+                respond(StatusCode::INTERNAL_SERVER_ERROR, "text/plain; charset=utf-8", Cow::Borrowed(b"This picture could not be drawn."))
+            }
+        };
+        responder.respond(response);
     }
 }
 
@@ -147,6 +170,14 @@ fn migrate_old_data(env: Env, new_dir: &std::path::Path) -> Result<bool, String>
         let new_settings = new_dir.join(gkcore::settings::SETTINGS_FILE_NAME);
         if settings.is_file() && !new_settings.exists() {
             std::fs::copy(&settings, &new_settings)?;
+        } else if settings.is_file() {
+            // Settings were written here before the copy worked (an earlier start where it
+            // failed): bring the old locks and marks in without replacing any.
+            let core = |e: gkcore::CoreError| std::io::Error::other(e.message);
+            let mut merged = gkcore::Settings::load(&new_settings).map_err(core)?;
+            if merged.merge_missing(&gkcore::Settings::load(&settings).map_err(core)?) {
+                merged.save(&new_settings).map_err(core)?;
+            }
         }
         std::fs::write(&marker, format!("Settings and backups were copied here from {}.\n", old_dir.display()))
     };
@@ -261,6 +292,15 @@ fn main() {
         std::process::exit(1);
     }
     errlog::install(&data_dir);
+    // The page is told too: locks and backups from the GoldenKey folder are missing until
+    // the copy works (it is tried again at every start).
+    let migration_problem = match &migrated {
+        Some(Err(_)) => Some(
+            "Vault Key could not copy your settings and backups from the old GoldenKey folder, so earlier locks may be missing. It tries again at the next start; the error log has the details."
+                .to_string(),
+        ),
+        _ => None,
+    };
     match migrated {
         Some(Ok(true)) => errlog::write("copied the settings and backups that were in the GoldenKey folder"),
         Some(Err(why)) => errlog::write(&why),
@@ -272,22 +312,35 @@ fn main() {
     let theme = gkcore::Settings::load(&data_dir.join(gkcore::settings::SETTINGS_FILE_NAME))
         .map(|s| s.theme().to_string())
         .unwrap_or_default();
-    let live_ui: Option<PathBuf> = std::env::var_os(assets::UI_DIR_ENV).map(PathBuf::from);
+    // Serving the page from a folder is for development; the shipped app only shows the
+    // copy built into it.
+    let live_ui: Option<PathBuf> =
+        if cfg!(debug_assertions) { std::env::var_os(assets::UI_DIR_ENV).map(PathBuf::from) } else { None };
 
     // The worker owns the app state and answers API calls in order.
     let (calls, inbox) = mpsc::channel::<ApiCall>();
     std::thread::spawn(move || {
         let mut api = api::Api::live(catalog_cache, selftest_dir);
+        if let Some(problem) = migration_problem {
+            api.notify(problem);
+        }
         for call in inbox {
             let args = if call.body.is_empty() {
                 Ok(serde_json::Value::Null)
             } else {
                 serde_json::from_slice(&call.body)
             };
-            let (result, effect) = match args {
+            // A panic (a bug) answers this one call with an error, and the app goes on. The
+            // open character is closed, since a change may have been half made to it; files
+            // are only ever changed through the safe write path, which leaves them whole.
+            let handled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match args {
                 Ok(args) => api.handle(&call.command, &args),
                 Err(e) => (Err(format!("bad request body: {e}")), api::Effect::None),
-            };
+            }));
+            let (result, effect) = handled.unwrap_or_else(|_| {
+                api.recover_from_panic();
+                (Err(PANIC_MESSAGE.to_string()), api::Effect::None)
+            });
             let response = match result {
                 Ok(value) => json_response(StatusCode::OK, &serde_json::json!({ "ok": value })),
                 Err(message) => json_response(StatusCode::OK, &serde_json::json!({ "error": message })),
@@ -317,16 +370,32 @@ fn main() {
         .build(&event_loop)
         .unwrap_or_else(|error| fail_to_start("Vault Key could not open its window", &error, "Restarting Windows may help."));
 
-    let text_env = |key: &str| env(key).and_then(|v| v.into_string().ok());
-    let start_url = start_url(selftest, text_env(SELECT_ENV).as_deref(), text_env(OPEN_ENV).as_deref());
+    let text_env = |key: &str| env(key).and_then(|v| v.into_string().ok()).filter(|_| cfg!(debug_assertions));
+    let open_at_start = text_env(OPEN_ENV);
+    if let Some(path) = &open_at_start {
+        dialogs::remember(dialogs::Purpose::Open, Path::new(path));
+    }
+    let start_url = start_url(selftest, text_env(SELECT_ENV).as_deref(), open_at_start.as_deref());
     let owner = dialogs::Owner::of(&window);
     let mut web_context = WebContext::new(Some(data_dir.join("WebView")));
     let webview = WebViewBuilder::new_with_web_context(&mut web_context)
         .with_background_color(window_background(&theme))
         .with_devtools(cfg!(debug_assertions))
+        // The window shows the app and nothing else: no following links or redirects away,
+        // no new windows, no downloads, and a file dropped on it is not opened as a page.
+        .with_navigation_handler(|url| is_app_address(&url))
+        .with_new_window_req_handler(|_, _| NewWindowResponse::Deny)
+        .with_download_started_handler(|_, _| false)
+        .with_drag_drop_handler(|_| true)
         .with_asynchronous_custom_protocol("gk".into(), move |_id, request: Request<Vec<u8>>, responder| {
             let path = request.uri().path().trim_start_matches('/').to_string();
             if let Some(command) = path.strip_prefix("api/") {
+                // Commands come only from the app's own page, as POSTs (a preflight or a
+                // page from elsewhere gets nothing done).
+                if !is_app_call(&request) {
+                    responder.respond(respond(StatusCode::FORBIDDEN, "text/plain; charset=utf-8", Cow::Borrowed(b"forbidden")));
+                    return;
+                }
                 // The Open and Save dialogs run on threads of their own, so that neither the
                 // window nor the API worker waits while the user picks a file.
                 let args: serde_json::Value = serde_json::from_slice(request.body()).unwrap_or(serde_json::Value::Null);
@@ -430,6 +499,25 @@ fn start_url(selftest: bool, select: Option<&str>, open: Option<&str>) -> String
     }
 }
 
+/// Whether `url` is one of the app's own pages.
+fn is_app_address(url: &str) -> bool {
+    APP_ORIGINS.iter().any(|origin| url.strip_prefix(origin).is_some_and(|rest| rest.is_empty() || rest.starts_with('/')))
+}
+
+/// Whether an API request comes from the app's own page: a POST whose `Origin` (or, if a
+/// request has none, `Referer`) is the app's.
+fn is_app_call(request: &Request<Vec<u8>>) -> bool {
+    if request.method() != wry::http::Method::POST {
+        return false;
+    }
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
+    match (header("Origin"), header("Referer")) {
+        (Some(origin), _) => APP_ORIGINS.contains(&origin),
+        (None, Some(referer)) => is_app_address(referer),
+        (None, None) => false,
+    }
+}
+
 fn path_or_index(path: &str) -> String {
     if path.is_empty() { "index.html".to_string() } else { path.to_string() }
 }
@@ -461,6 +549,34 @@ mod tests {
         let png = picture_response(pictures::Answer { status: 200, content_type: "image/png", body: vec![1, 2, 3] });
         assert_eq!((png.status(), png.headers()["Content-Type"].to_str().unwrap()), (StatusCode::OK, "image/png"));
         assert_eq!(png.headers()["Cache-Control"].to_str().unwrap(), PICTURE_CACHE_CONTROL);
+    }
+
+    #[test]
+    fn the_window_stays_on_the_app_and_takes_commands_only_from_it() {
+        for url in ["gk://localhost/index.html", "http://gk.localhost/index.html?selftest", "http://gk.localhost"] {
+            assert!(is_app_address(url), "{url}");
+        }
+        for url in ["file:///C:/Users/x/Downloads/page.html", "https://example.com/", "http://gk.localhost.example.com/", "about:blank"] {
+            assert!(!is_app_address(url), "{url}");
+        }
+        let call = |method: &str, headers: &[(&str, &str)]| {
+            let mut request = Request::builder().method(method).uri("http://gk.localhost/api/save");
+            for (name, value) in headers {
+                request = request.header(*name, *value);
+            }
+            is_app_call(&request.body(Vec::new()).unwrap())
+        };
+        assert!(call("POST", &[("Origin", "http://gk.localhost")]));
+        assert!(call("POST", &[("Referer", "http://gk.localhost/index.html")]));
+        assert!(!call("POST", &[("Origin", "null")]));
+        assert!(!call("POST", &[("Origin", "null"), ("Referer", "http://gk.localhost/index.html")]));
+        assert!(!call("POST", &[("Origin", "https://example.com")]));
+        assert!(!call("POST", &[]));
+        assert!(!call("OPTIONS", &[("Origin", "http://gk.localhost")]));
+        assert!(!call("GET", &[("Origin", "http://gk.localhost")]));
+        // Every response says what the page may load.
+        let page = respond(StatusCode::OK, "text/html", Cow::Borrowed(b""));
+        assert!(page.headers()["Content-Security-Policy"].to_str().unwrap().starts_with("default-src 'self'"));
     }
 
     #[test]
@@ -530,7 +646,7 @@ mod tests {
         let backup = std::path::Path::new("765").join("Save0004.sav").join("20261110-000000Z");
         std::fs::create_dir_all(old.join("backups").join(&backup)).unwrap();
         std::fs::create_dir_all(old.join("GameData")).unwrap();
-        std::fs::write(old.join("settings.txt"), "protected abc Someone\n").unwrap();
+        std::fs::write(old.join("settings.txt"), "protected 0123456789abcdef Someone\n").unwrap();
         std::fs::write(old.join("backups").join(&backup).join("Save0004.sav"), b"save").unwrap();
         std::fs::write(old.join("GameData").join("cache.bin"), b"cache").unwrap();
         let local_text = local.clone().into_os_string();
@@ -542,7 +658,7 @@ mod tests {
         std::fs::create_dir_all(new.join("backups").join(&backup)).unwrap();
         std::fs::write(new.join("backups").join(&backup).join("Save0004.sav"), b"newer").unwrap();
         assert_eq!(migrate_old_data(&env, &new), Ok(true));
-        assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "protected abc Someone\n");
+        assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "protected 0123456789abcdef Someone\n");
         assert_eq!(std::fs::read(new.join("backups").join(&backup).join("Save0004.sav")).unwrap(), b"newer");
         assert!(!new.join("GameData").exists(), "the cache is rebuilt, not copied");
         assert!(old.join("settings.txt").is_file(), "the old folder is left as it is");
@@ -555,10 +671,11 @@ mod tests {
         assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "theme blue\n");
         assert!(!new.join("backups").exists());
 
-        // A new folder with settings of its own keeps them: only backups are added.
+        // A new folder with settings of its own keeps them, and the old locks are added.
         std::fs::remove_file(new.join(MIGRATED_MARKER)).unwrap();
         assert_eq!(migrate_old_data(&env, &new), Ok(true));
-        assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "theme blue\n");
+        let merged = std::fs::read_to_string(new.join("settings.txt")).unwrap();
+        assert!(merged.contains("theme blue\n") && merged.contains("protected 0123456789abcdef Someone\n"), "{merged}");
         assert!(new.join("backups").join(&backup).join("Save0004.sav").is_file());
         let _ = std::fs::remove_dir_all(&local);
     }

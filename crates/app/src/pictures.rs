@@ -69,7 +69,7 @@ impl Answer {
     fn refusal(error: &PictureError) -> Self {
         let status = match error {
             PictureError::BadCode => 400,
-            PictureError::NotAWeapon | PictureError::NothingToDraw | PictureError::UnknownParts => 404,
+            PictureError::NotAWeapon | PictureError::NothingToDraw | PictureError::UnknownParts | PictureError::Hybrid(_) => 404,
             PictureError::GameData(_) => 503,
         };
         Self::sentence(status, error.message())
@@ -175,7 +175,7 @@ impl Service {
     /// `GK_GAME_DATA` is honoured.
     pub fn live() -> Self {
         Self::new(Box::new(|| {
-            let install = gamedata::GameInstall::locate()
+            let install = gkcore::catalog::locate_install()
                 .ok_or_else(|| PictureError::GameData("Borderlands 2 was not found".to_string()))?;
             let mut pictures = Pictures::open(&install)?;
             pictures.set_style(Style { facing: FACING, ..Style::default() });
@@ -207,7 +207,11 @@ impl Service {
             return Answer::png(png);
         }
         if let Some(opener) = self.opener.take() {
-            self.painter = Some(opener());
+            let opened = opener();
+            if let Err(why) = &opened {
+                crate::errlog::write(&format!("pictures: {why}"));
+            }
+            self.painter = Some(opened);
         }
         let painter = match &mut self.painter {
             Some(Ok(painter)) => painter,
@@ -220,7 +224,13 @@ impl Service {
                 self.cache.put(key, &png);
                 Answer::png(png)
             }
-            Err(why) => Answer::refusal(&why),
+            Err(why) => {
+                // The page gets the sentence; the log keeps which file or piece it was.
+                if matches!(why, PictureError::GameData(_)) {
+                    crate::errlog::write(&format!("picture: {why}"));
+                }
+                Answer::refusal(&why)
+            }
         }
     }
 }
@@ -245,6 +255,7 @@ mod tests {
                 "parts" => Err(PictureError::UnknownParts),
                 "empty" => Err(PictureError::NothingToDraw),
                 "broken" => Err(PictureError::GameData("a mesh".into())),
+                "hybrid" => Err(PictureError::Hybrid("a barrel".into())),
                 c if c.starts_with("BL2(") => Ok(vec![(width % 251) as u8; self.size]),
                 _ => Err(PictureError::BadCode),
             }
@@ -335,6 +346,8 @@ mod tests {
             ("parts", 404, PictureError::UnknownParts),
             ("empty", 404, PictureError::NothingToDraw),
             ("broken", 503, PictureError::GameData("x".into())),
+            // A hybrid is not a game-file problem.
+            ("hybrid", 404, PictureError::Hybrid("x".into())),
             ("hello", 400, PictureError::BadCode),
         ] {
             let answer = service.answer(&format!("detail/{code}"));

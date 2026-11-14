@@ -1,7 +1,9 @@
 //! Turning an assembled weapon into a scene for the renderer.
 
+use crate::error::{MeshError, Result};
 use crate::gestalt::{Fragment, GestaltMesh};
 use crate::render::{Scene, Triangle};
+use crate::skeletal::MAX_TRIANGLES;
 use crate::weapon::Assembly;
 
 /// Placeholder colours per part slot (body, grip, barrel, sight, stock, elemental, accessory 1,
@@ -44,7 +46,22 @@ fn push_run(scene: &mut Scene, gestalt: &GestaltMesh, fragment: &Fragment, group
 
 /// The triangles of an assembled weapon, one colour group per part slot. Also returns the
 /// fragment names the gestalt mesh does not have.
-pub fn weapon_scene(gestalt: &GestaltMesh, assembly: &Assembly) -> (Scene, Vec<String>) {
+///
+/// Parts may name the same fragment, and a name may have several runs, so the scene can hold
+/// more triangles than the mesh. More than [`MAX_TRIANGLES`] in all is
+/// [`MeshError::Unsupported`], found before any is copied.
+pub fn weapon_scene(gestalt: &GestaltMesh, assembly: &Assembly) -> Result<(Scene, Vec<String>)> {
+    let total: u64 = assembly
+        .fragments()
+        .flat_map(|(_, name)| gestalt.fragments_named(name))
+        .map(|fragment| u64::from(fragment.triangle_count))
+        .sum();
+    if total > MAX_TRIANGLES as u64 {
+        return Err(MeshError::Unsupported(format!(
+            "{}: {total} triangles in the picture, more than {MAX_TRIANGLES}",
+            gestalt.definition_path
+        )));
+    }
     let mut scene = Scene { triangles: Vec::new(), palette: SLOT_COLOURS.to_vec() };
     let mut missing = Vec::new();
     for (slot, name) in assembly.fragments() {
@@ -53,7 +70,7 @@ pub fn weapon_scene(gestalt: &GestaltMesh, assembly: &Assembly) -> (Scene, Vec<S
             missing.push(name.to_string());
         }
     }
-    (scene, missing)
+    Ok((scene, missing))
 }
 
 /// Every fragment of a gestalt mesh at once, each in its own colour group.

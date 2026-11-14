@@ -147,6 +147,39 @@ pub(crate) fn save_file_names(folder: &Path) -> Option<Vec<String>> {
     Some(names)
 }
 
+/// How old a temp file Vault Key left in a save folder must be before it is removed: well
+/// past any write in progress.
+const STALE_TEMP_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Whether `name` is a temp file the write path makes for a new save (`.gk-<run>.tmp`,
+/// `.gk-export-….tmp`, `.gk-install-….tmp`). Undo files (`-undo.tmp`) are never matched:
+/// they may hold the only copy of a file being put back.
+fn is_write_temp(name: &str) -> bool {
+    name.starts_with(".gk-")
+        && name.ends_with(".tmp")
+        && !name.ends_with("-undo.tmp")
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._".contains(&b))
+}
+
+/// Removes temp files the write path left in the Steam-ID folders when it was stopped part
+/// way (the app was killed, or the PC lost power). Only plain files of that name, an hour
+/// old or more, are removed; anything else is left alone. Returns how many were removed.
+pub(crate) fn remove_stale_temp_files(root: &Path, now: std::time::SystemTime) -> usize {
+    let mut removed = 0;
+    for steam_id in steam_ids(root).unwrap_or_default() {
+        let Ok(entries) = fs::read_dir(root.join(&steam_id)) else { continue };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(meta) = fs::symlink_metadata(entry.path()) else { continue };
+            let old = meta.modified().ok().and_then(|at| now.duration_since(at).ok()).is_some_and(|age| age >= STALE_TEMP_AGE);
+            if is_write_temp(&name) && meta.file_type().is_file() && old && fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    removed
+}
+
 /// Lists every save file under `root`. A file that cannot be read or decoded is still
 /// listed, with [`CharacterEntry::problem`] set. An error only if `root` itself cannot be
 /// listed.
@@ -167,7 +200,7 @@ pub fn scan(root: &Path, settings: &Settings) -> Result<Vec<CharacterEntry>> {
 fn describe(path: &Path, slot_id: SlotId, settings: &Settings, steam_cloud: bool) -> CharacterEntry {
     let meta = fs::metadata(path).ok();
     let modified_unix = meta.as_ref().and_then(|m| m.modified().ok()).map(time::unix_seconds);
-    let decoded = match fs::read(path) {
+    let decoded = match guards::read_save_file(path) {
         Ok(bytes) => SaveDocument::from_file_bytes(&bytes).map_err(|e| unreadable_reason(&e)),
         Err(e) => Err(format!("The file cannot be read: {e}")),
     };
@@ -218,6 +251,25 @@ mod tests {
     use savekit::{field, ItemBlob, ProtoField, ProtoMessage, ProtoValue};
 
     #[test]
+    fn only_old_write_temp_files_are_cleaned_up() {
+        let temp = TempDir::new();
+        let root = temp.path().join("SaveData");
+        let folder = root.join(STEAM_ID);
+        fs::create_dir_all(&folder).unwrap();
+        for name in [".gk-12-34-1.tmp", ".gk-export-1-2-3.tmp", ".gk-12-34-1-undo.tmp", "Save0002.sav", ".gk-notes.txt", "x.tmp"] {
+            fs::write(folder.join(name), b"x").unwrap();
+        }
+        fs::create_dir(folder.join(".gk-dir.tmp")).unwrap();
+        // Just written: nothing is old enough yet.
+        assert_eq!(remove_stale_temp_files(&root, std::time::SystemTime::now()), 0);
+        let later = std::time::SystemTime::now() + STALE_TEMP_AGE + std::time::Duration::from_secs(5);
+        assert_eq!(remove_stale_temp_files(&root, later), 2);
+        let mut left: Vec<String> = fs::read_dir(&folder).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, [".gk-12-34-1-undo.tmp", ".gk-dir.tmp", ".gk-notes.txt", "Save0002.sav", "x.tmp"]);
+    }
+
+    #[test]
     fn classes_from_class_paths() {
         assert_eq!(
             CharacterClass::from_class_path("GD_Assassin.Character.CharClass_Assassin"),
@@ -261,7 +313,7 @@ mod tests {
         fs::create_dir(folder.join("Save0007.sav")).unwrap();
 
         let mut settings = Settings::default();
-        settings.record_created(&SlotId::new(STEAM_ID, "Save0002.sav").unwrap());
+        settings.record_created(&SlotId::new(STEAM_ID, "Save0002.sav").unwrap(), &crate::policy::character_mark(&sample_doc(2)));
         let list = scan(&root, &settings).unwrap();
         let names: Vec<&str> = list.iter().map(|c| c.file_name.as_str()).collect();
         assert_eq!(names, ["Save0002.sav", "Save0003.sav", "Save0005.sav", "save000A.SAV", "Save0002 - Copy.sav"]);

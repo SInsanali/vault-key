@@ -380,6 +380,13 @@ fn apply(out: &mut Replay, change: &PendingChange, classifier: &dyn GearClassifi
         Edit::UnlockAmmo => doc.unlock_ammo().map_err(edit_error)?,
         Edit::MaximizeAmmo => doc.maximize_ammo().map_err(edit_error)?,
         Edit::ItemLevels { level, force } => {
+            // The same range the page offers (the engine alone would take up to 127).
+            if !(0..=MAX_GEAR_LEVEL).contains(level) {
+                return fail(
+                    ErrorKind::InvalidValue,
+                    format!("Item level must be between 1 and {MAX_GEAR_LEVEL} (or 0 for the character's level)."),
+                );
+            }
             let target = if *level > 0 { *level } else { doc.level() };
             let affected: Vec<EntryRef> = doc
                 .inventory()
@@ -520,7 +527,7 @@ fn edit_error(error: SaveKitError) -> CoreError {
         SaveKitError::InvalidValue { field, reason } => {
             let message = match field.as_str() {
                 "name" if reason.contains("empty") => "Name can't be empty.".to_string(),
-                "name" => "Name can only use Latin letters (no emoji).".to_string(),
+                "name" => "Name can only use English letters, digits, spaces and punctuation.".to_string(),
                 "level" => format!("Level must be between {MIN_LEVEL} and {MAX_LEVEL}."),
                 "currency" => format!("Must be between 0 and {}.", format::number(MAX_CURRENCY)),
                 "backpackSlots" => format!("Backpack must be {MIN_BACKPACK_SLOTS}–{MAX_BACKPACK_SLOTS} slots."),
@@ -932,7 +939,7 @@ mod tests {
             (Edit::Currency(Currency::Money, -1), "Must be between 0 and 2,147,483,647."),
             (Edit::Currency(Currency::Torgue, 2_147_483_648), "Must be between 0 and 2,147,483,647."),
             (Edit::Name(String::new()), "Name can't be empty."),
-            (Edit::Name("Zer0🔥".to_string()), "Name can only use Latin letters (no emoji)."),
+            (Edit::Name("Zer0🔥".to_string()), "Name can only use English letters, digits, spaces and punctuation."),
             (Edit::Name("two\nlines".to_string()), "Name can't contain line breaks or control characters."),
             (Edit::BackpackSlots(11), "Backpack must be 12–39 slots."),
             (Edit::BackpackSlots(40), "Backpack must be 12–39 slots."),
@@ -941,7 +948,12 @@ mod tests {
             (Edit::OpLevel(11), "Overpower level must be 0–10."),
             (
                 Edit::ItemLevels { level: 128, force: false },
-                "Item level must be between 0 and 127 (0 means the character's level).",
+                "Item level must be between 1 and 90 (or 0 for the character's level).",
+            ),
+            // The page offers up to level 80 and Overpower 10; the API takes no more.
+            (
+                Edit::ItemLevels { level: 91, force: false },
+                "Item level must be between 1 and 90 (or 0 for the character's level).",
             ),
             (Edit::ImportCodes { codes: vec![], to_bank: false }, "There are no item codes to import."),
             (

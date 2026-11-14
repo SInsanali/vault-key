@@ -12,6 +12,8 @@ pub const PACKAGE_TAG: u32 = 0x9E2A_83C1;
 const MAX_BLOCK_SIZE: usize = 1_048_576;
 /// Largest decompressed package accepted (512 MiB). The biggest real one is about 60 MB.
 const MAX_OUTPUT: usize = 536_870_912;
+/// Output bytes reserved per compressed byte at most: a little over LZO1X's largest expansion.
+const MAX_EXPANSION: usize = 256;
 
 /// Reads a package file (opened read-only) and returns its uncompressed bytes.
 pub fn read_package(path: &Path) -> Result<Vec<u8>> {
@@ -196,7 +198,12 @@ fn stream(
             "{name}: block sums do not match stream totals"
         )));
     }
-    out.reserve(uncomp_total);
+    if comp_total > r.remaining() {
+        return Err(GameDataError::Truncated(format!("{name}: compressed blocks")));
+    }
+    // The header alone does not reserve memory: LZO1X expands at most about 255 times, so no
+    // more is reserved than the compressed blocks could hold.
+    out.reserve(uncomp_total.min(comp_total.saturating_mul(MAX_EXPANSION)));
     for (comp, uncomp) in pairs {
         let block = r.take(comp)?;
         let data = lzo1x::decompress(block, uncomp)
@@ -295,6 +302,22 @@ mod tests {
         let mut s = chunk_stream(&sample(0), 0x20000);
         s[4..8].copy_from_slice(&[0; 4]);
         assert!(matches!(error_of(&s), GameDataError::UnexpectedData(_)));
+
+        // A header and block table that promise 500 MiB from blocks that are not there: refused
+        // before any output is reserved for them.
+        let mut s = PACKAGE_TAG.to_le_bytes().to_vec();
+        for v in [MAX_BLOCK_SIZE, 500 * 10, 500 << 20] {
+            s.extend((v as u32).to_le_bytes());
+        }
+        for _ in 0..500 {
+            s.extend(10u32.to_le_bytes());
+            s.extend((MAX_BLOCK_SIZE as u32).to_le_bytes());
+        }
+        s.extend([0x11, 0, 0]);
+        assert_eq!(
+            error_of(&s),
+            GameDataError::Truncated("t: compressed blocks".into())
+        );
 
         // A damaged LZO end-of-stream marker.
         let mut damaged = chunked(&sample(1000), 0x20000);

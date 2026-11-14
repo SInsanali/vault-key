@@ -10,6 +10,8 @@ use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use crate::app::MAX_SAVE_FILE_BYTES;
+
 /// A refusal or failure. The message is the one-line reason shown to the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GkError(pub String);
@@ -21,6 +23,24 @@ impl fmt::Display for GkError {
 }
 
 impl std::error::Error for GkError {}
+
+/// Reads a file that should be a save (or a backup of one), refusing one larger than
+/// [`MAX_SAVE_FILE_BYTES`] before reading it.
+pub fn read_save_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let file = fs::File::open(path)?;
+    let too_big = || std::io::Error::new(std::io::ErrorKind::InvalidData, "it is far too large to be a save file");
+    if file.metadata()?.len() > MAX_SAVE_FILE_BYTES {
+        return Err(too_big());
+    }
+    // The file could grow while it is read: never take more than the limit.
+    let mut bytes = Vec::new();
+    file.take(MAX_SAVE_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_SAVE_FILE_BYTES {
+        return Err(too_big());
+    }
+    Ok(bytes)
+}
 
 pub fn refuse<T>(message: impl Into<String>) -> Result<T, GkError> {
     Err(GkError(message.into()))
@@ -222,7 +242,7 @@ pub fn is_real_save_0001(data: &[u8], real_roots: &[PathBuf]) -> bool {
     for root in real_roots {
         let Ok(entries) = fs::read_dir(root) else { continue };
         for entry in entries.flatten() {
-            if let Ok(real) = fs::read(entry.path().join("Save0001.sav")) {
+            if let Ok(real) = read_save_file(&entry.path().join("Save0001.sav")) {
                 if real == data {
                     return true;
                 }
@@ -258,7 +278,7 @@ pub fn slot_using_save_game_id(
         if !is_save_file_name(&name) {
             continue;
         }
-        let decoded = fs::read(dir.join(&name)).ok().and_then(|d| save_game_id(&d));
+        let decoded = read_save_file(&dir.join(&name)).ok().and_then(|d| save_game_id(&d));
         let Some(existing) = decoded else {
             return refuse(format!(
                 "refused: cannot read or decode {name} in the save folder, so its save-game ID is unknown; fix or move it first"
@@ -284,7 +304,7 @@ pub fn game_is_running(process_names: &[String]) -> bool {
 /// An error when the list cannot be obtained: callers must treat that as "cannot prove the
 /// game is closed" and refuse, not as "not running".
 pub fn live_process_names() -> Result<Vec<String>, GkError> {
-    let mut command = std::process::Command::new("tasklist");
+    let mut command = std::process::Command::new(tasklist_path());
     command.args(["/FO", "CSV", "/NH"]);
     #[cfg(windows)]
     {
@@ -304,6 +324,21 @@ pub fn live_process_names() -> Result<Vec<String>, GkError> {
         return refuse("refused: the process list came back empty, so cannot tell whether the game is closed");
     }
     Ok(names)
+}
+
+/// The full path of one of Windows' own programs, such as `tasklist.exe`. A bare name is
+/// looked up in the program's own folder first, so a `tasklist.exe` left beside a portable
+/// copy (say, in Downloads) would run instead and decide whether saving is allowed.
+pub(crate) fn system_program(name: &str) -> std::path::PathBuf {
+    let root = std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .filter(|root| root.is_absolute())
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+    root.join("System32").join(name)
+}
+
+fn tasklist_path() -> std::path::PathBuf {
+    system_program("tasklist.exe")
 }
 
 /// First CSV column of each `tasklist /FO CSV /NH` line: the image name.
@@ -537,6 +572,24 @@ mod tests {
     fn live_process_list_works_here() {
         let names = live_process_names().unwrap();
         assert!(names.len() > 5);
+    }
+
+    #[test]
+    fn files_too_large_to_be_saves_are_not_read() {
+        let t = TempDir::new();
+        let small = t.path().join("Save0002.sav");
+        fs::write(&small, b"save").unwrap();
+        assert_eq!(read_save_file(&small).unwrap(), b"save");
+        let big = t.path().join("Save0003.sav");
+        fs::File::create(&big).unwrap().set_len(MAX_SAVE_FILE_BYTES + 1).unwrap();
+        assert_eq!(read_save_file(&big).unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn tasklist_is_windows_own() {
+        let path = tasklist_path();
+        assert!(path.is_absolute() && path.ends_with("System32/tasklist.exe"), "{}", path.display());
+        assert!(path.is_file(), "{}", path.display());
     }
 
     #[test]

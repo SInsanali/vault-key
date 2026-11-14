@@ -182,7 +182,7 @@ export function renderOverview(state, actions) {
         numberField(c, actions, { kind: "level", label: `Level (${limits.level[0]}–${limits.level[1]})`, value: now.level, was: was.level }),
         h("label", { class: `field ${opChanged ? "changed" : ""}` }, "Overpower", opSelect, opChanged ? h("span", { class: "was" }, `Was OP ${was.opLevel}`) : null),
       ),
-      h("p", { class: "note" }, "XP is set to match the new level."),
+      h("p", { class: "note" }, "XP is set to match the new level. Skill points stay as they are."),
       h("label", { class: `check ${gearLevels ? "changed" : ""}` }, gearCheck, "Also level up all gear"),
       gearLevels ? h("p", { class: "note dim" }, `Item levels: ${gearLevels.to}. Items in the bank stay as they are.`) : null,
       stamps(c, ["name", "level", "opLevel", "itemLevels"]),

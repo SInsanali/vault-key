@@ -21,10 +21,16 @@ const UNUSED: u32 = 0x20;
 const CHUNK_TAG: u32 = 0x9E2A_83C1;
 /// Largest mip payload accepted (a 4096 × 4096 DXT5 mip is 16 MiB).
 const MAX_MIP_BYTES: usize = 64 << 20;
-/// Largest mip side accepted.
-const MAX_SIDE: u32 = 8192;
+/// Largest mip side decoded: the game's largest textures are 4096 on a side. A mip this size
+/// decodes to 64 MiB of pixels.
+const MAX_SIDE: u32 = 4096;
 /// Most mips a texture may list.
 const MAX_MIPS: usize = 32;
+/// Largest block of a texture cache chunk stream. The game's caches use 128 KiB blocks; this
+/// is the package reader's limit too.
+const MAX_BLOCK_SIZE: usize = 1 << 20;
+/// Longest texture cache name accepted. The longest the game names is 25 characters.
+const MAX_CACHE_NAME: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PixelFormat {
@@ -187,32 +193,27 @@ impl Texture {
             .or_else(|| self.mips.iter().rev().find(|m| m.flags & UNUSED == 0))
     }
 
-    /// Decodes a mip. `package_dir` is the folder holding the package and its `.tfc` files;
-    /// it is only read.
     /// As [`Texture::decode`], looking for the `.tfc` cache in each of `dirs` in turn (a DLC
     /// texture's cache is in that DLC's folder).
     pub fn decode_from(&self, mip: &Mip, dirs: &[&Path]) -> Result<Pixels> {
-        let cache = self.cache_name.as_deref().unwrap_or("");
-        let dir = dirs
-            .iter()
-            .find(|dir| mip.inline.is_some() || dir.join(format!("{cache}.tfc")).is_file())
-            .or(dirs.first())
-            .ok_or_else(|| MeshError::Missing(format!("{}: a folder for its texture cache", self.path)))?;
+        let dir = if mip.inline.is_some() {
+            dirs.first()
+        } else {
+            // Checked before the name goes anywhere near the file system.
+            let file = format!("{}.tfc", self.checked_cache_name()?);
+            dirs.iter().find(|dir| dir.join(&file).is_file()).or(dirs.first())
+        };
+        let dir = dir.ok_or_else(|| MeshError::Missing(format!("{}: a folder for its texture cache", self.path)))?;
         self.decode(mip, dir)
     }
 
+    /// Decodes a mip. `package_dir` is the folder holding the package and its `.tfc` files;
+    /// it is only read.
     pub fn decode(&self, mip: &Mip, package_dir: &Path) -> Result<Pixels> {
         let data = match &mip.inline {
             Some(data) => data.clone(),
             None => {
-                let cache = self
-                    .cache_name
-                    .as_deref()
-                    .ok_or_else(|| MeshError::Missing(format!("{}: texture cache name", self.path)))?;
-                if !cache.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
-                    return Err(MeshError::Unsupported(format!("texture cache name {cache:?}")));
-                }
-                let file = package_dir.join(format!("{cache}.tfc"));
+                let file = package_dir.join(format!("{}.tfc", self.checked_cache_name()?));
                 read_cached_mip(&file, mip)?
             }
         };
@@ -234,6 +235,36 @@ impl Texture {
         };
         Ok(Pixels { width: mip.width, height: mip.height, rgba })
     }
+
+    /// The texture cache's name, once it is known to be a plain file name (see
+    /// [`is_plain_cache_name`]). The name comes from the package, so it is checked before it is
+    /// ever joined to a folder.
+    fn checked_cache_name(&self) -> Result<&str> {
+        let cache = self
+            .cache_name
+            .as_deref()
+            .ok_or_else(|| MeshError::Missing(format!("{}: texture cache name", self.path)))?;
+        if !is_plain_cache_name(cache) {
+            return Err(MeshError::Unsupported(format!("{}: texture cache name {cache:?}", self.path)));
+        }
+        Ok(cache)
+    }
+}
+
+/// Whether a texture cache name from a package is safe to look up beside it: 1 to
+/// [`MAX_CACHE_NAME`] ASCII letters, digits and underscores (so no separator, drive, dot or
+/// `\\server\share` prefix), and not a Windows device name such as `CON` or `COM1`, which
+/// would open the device instead of a file.
+fn is_plain_cache_name(name: &str) -> bool {
+    const DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+    let numbered_device = |prefix: &str| {
+        name.len() == 4 && name[..3].eq_ignore_ascii_case(prefix) && name.as_bytes()[3].is_ascii_digit()
+    };
+    (1..=MAX_CACHE_NAME).contains(&name.len())
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        && !DEVICES.iter().any(|device| name.eq_ignore_ascii_case(device))
+        && !numbered_device("COM")
+        && !numbered_device("LPT")
 }
 
 fn read_cached_mip(file: &Path, mip: &Mip) -> Result<Vec<u8>> {
@@ -242,6 +273,16 @@ fn read_cached_mip(file: &Path, mip: &Mip) -> Result<Vec<u8>> {
     }
     let io = |e: std::io::Error| MeshError::Missing(format!("{}: {e}", file.display()));
     let mut f = File::open(file).map_err(io)?;
+    // Nothing is allocated for an entry that would run past the end of the file.
+    let length = f.metadata().map_err(io)?.len();
+    if mip.offset.checked_add(mip.size_on_disk as u64).is_none_or(|end| end > length) {
+        return Err(MeshError::Truncated(format!(
+            "{}: {} bytes at offset {} of a {length}-byte file",
+            file.display(),
+            mip.size_on_disk,
+            mip.offset
+        )));
+    }
     f.seek(SeekFrom::Start(mip.offset)).map_err(io)?;
     let mut raw = vec![0u8; mip.size_on_disk];
     f.read_exact(&mut raw).map_err(io)?;
@@ -257,22 +298,34 @@ fn read_cached_mip(file: &Path, mip: &Mip) -> Result<Vec<u8>> {
     let block_size = c.u32()? as usize;
     c.skip(4)?;
     let total = c.u32()? as usize;
-    if block_size == 0 || total != mip.byte_count {
+    if !(1..=MAX_BLOCK_SIZE).contains(&block_size) {
+        return Err(MeshError::Unsupported(format!("texture cache blocks of {block_size} bytes")));
+    }
+    if total != mip.byte_count {
         return Err(MeshError::Unsupported(format!("chunk stream of {total} bytes for a mip of {}", mip.byte_count)));
     }
     let blocks = total.div_ceil(block_size);
     if blocks > c.remaining() / 8 {
         return Err(MeshError::Truncated(format!("{blocks} blocks in a texture cache entry")));
     }
+    // Every block's size is checked before anything is decompressed: each holds at most a
+    // block and at most what is left of the mip, and the compressed sizes fit in the entry.
     let mut sizes = Vec::with_capacity(blocks);
+    let (mut left, mut compressed_total) = (total, 0usize);
     for _ in 0..blocks {
-        sizes.push((c.u32()? as usize, c.u32()? as usize));
+        let (compressed, uncompressed) = (c.u32()? as usize, c.u32()? as usize);
+        if uncompressed > block_size || uncompressed > left {
+            return Err(MeshError::Unsupported(format!("block of {uncompressed} bytes, {left} left of the mip")));
+        }
+        left -= uncompressed;
+        compressed_total = compressed_total.saturating_add(compressed);
+        sizes.push((compressed, uncompressed));
+    }
+    if left != 0 || compressed_total > c.remaining() {
+        return Err(MeshError::Truncated(format!("texture cache blocks short of the {total}-byte mip")));
     }
     let mut out = Vec::with_capacity(total);
     for (compressed, uncompressed) in sizes {
-        if uncompressed > block_size {
-            return Err(MeshError::Unsupported(format!("block of {uncompressed} bytes")));
-        }
         let block = lzo1x::decompress(c.take(compressed)?, uncompressed)
             .map_err(|e| MeshError::Unsupported(format!("texture cache block: {e:?}")))?;
         out.extend_from_slice(&block);
@@ -367,6 +420,150 @@ mod tests {
         assert_eq!(&px[0..4], &[255, 255, 255, 255]);
         assert_eq!(px[7], 0);
         assert_eq!(px[11], 218);
+    }
+
+    /// A folder of its own in the system's temporary folder, removed when dropped.
+    struct Folder(std::path::PathBuf);
+
+    impl Folder {
+        fn new(label: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("gamemesh-unit-{}-{label}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Four BGRA texels: a 2 × 2 mip.
+    const TEXELS: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
+    /// A chunk stream holding `data` in blocks of `split` bytes, with `block_size` in its header
+    /// and each block's declared uncompressed size taken from `declared` (its real size when
+    /// `declared` runs out).
+    fn chunk_stream(data: &[u8], block_size: u32, split: usize, declared: &[u32]) -> Vec<u8> {
+        let blocks: Vec<&[u8]> = data.chunks(split).collect();
+        let compressed: Vec<Vec<u8>> = blocks.iter().map(|b| lzo1x::compress_literals(b)).collect();
+        let mut out = Vec::new();
+        for word in [CHUNK_TAG, block_size, compressed.iter().map(Vec::len).sum::<usize>() as u32, data.len() as u32] {
+            out.extend(word.to_le_bytes());
+        }
+        for (i, (block, packed)) in blocks.iter().zip(&compressed).enumerate() {
+            let size = declared.get(i).copied().unwrap_or(block.len() as u32);
+            out.extend((packed.len() as u32).to_le_bytes());
+            out.extend(size.to_le_bytes());
+        }
+        out.extend(compressed.concat());
+        out
+    }
+
+    /// A 2 × 2 texture whose one mip is the whole of `Cache.tfc` (`entry`), or inline.
+    fn texture(cache_name: &str, entry_len: usize, inline: bool) -> Texture {
+        let mip = Mip {
+            width: 2,
+            height: 2,
+            flags: if inline { 0 } else { STORED_SEPARATELY | COMPRESSED_LZO },
+            byte_count: TEXELS.len(),
+            size_on_disk: entry_len,
+            offset: 0,
+            inline: inline.then(|| TEXELS.to_vec()),
+        };
+        Texture { path: "T".into(), format: PixelFormat::Bgra8, cache_name: Some(cache_name.into()), mips: vec![mip] }
+    }
+
+    #[test]
+    fn cache_names_must_be_plain_file_names() {
+        for good in ["CharTextures", "Textures", "Lighting_physx", "Dlc3_Textures", "COM", "CONSOLE", "LPT", "COMA"] {
+            assert!(is_plain_cache_name(good), "{good}");
+        }
+        let longest = "T".repeat(MAX_CACHE_NAME);
+        assert!(is_plain_cache_name(&longest));
+        let too_long = "T".repeat(MAX_CACHE_NAME + 1);
+        for bad in [
+            "",
+            too_long.as_str(),
+            r"\\host\share\x",
+            "//host/share/x",
+            r"..\Textures",
+            "C:Textures",
+            "Textures.tfc",
+            "Tex tures",
+            "Tëxtures",
+            "CON",
+            "nul",
+            "Aux",
+            "PRN",
+            "com1",
+            "LPT9",
+        ] {
+            assert!(!is_plain_cache_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_bad_cache_name_is_refused_before_any_lookup() {
+        let folder = Folder::new("names");
+        let dirs = [folder.0.as_path()];
+        for bad in [r"\\host\share\x", "CON", r"..\..\x"] {
+            let texture = texture(bad, 0, false);
+            let refused = texture.decode_from(&texture.mips[0], &dirs).unwrap_err();
+            assert!(matches!(&refused, MeshError::Unsupported(m) if m.contains("texture cache name")), "{refused:?}");
+            assert!(texture.decode(&texture.mips[0], &folder.0).is_err());
+        }
+        // An inline mip never uses the name.
+        let inline = texture(r"\\host\share\x", 0, true);
+        let pixels = inline.decode_from(&inline.mips[0], &dirs).unwrap();
+        assert_eq!(&pixels.rgba[..4], &[3, 2, 1, 4]);
+    }
+
+    #[test]
+    fn cache_blocks_are_bounded_before_decompressing() {
+        let folder = Folder::new("blocks");
+        let decode = |entry: &[u8], size_on_disk: usize| {
+            std::fs::write(folder.0.join("Cache.tfc"), entry).unwrap();
+            let texture = texture("Cache", size_on_disk, false);
+            texture.decode_from(&texture.mips[0], &[folder.0.as_path()])
+        };
+        // Sound entries: one 128 KiB block, and two blocks of 8 bytes.
+        let one = chunk_stream(&TEXELS, 0x20000, 16, &[]);
+        assert_eq!(decode(&one, one.len()).unwrap().rgba[..4], [3, 2, 1, 4]);
+        let two = chunk_stream(&TEXELS, 8, 8, &[]);
+        assert_eq!(decode(&two, two.len()).unwrap().rgba[12..], [15, 14, 13, 16]);
+
+        // A block size of nothing, or of gigabytes.
+        for block_size in [0, (MAX_BLOCK_SIZE + 1) as u32, u32::MAX] {
+            let entry = chunk_stream(&TEXELS, block_size, 16, &[]);
+            assert!(matches!(decode(&entry, entry.len()), Err(MeshError::Unsupported(_))), "{block_size}");
+        }
+        // A block that claims more than a block, or more than is left of the mip.
+        let entry = chunk_stream(&TEXELS, 16, 16, &[u32::MAX]);
+        assert!(matches!(decode(&entry, entry.len()), Err(MeshError::Unsupported(_))));
+        let entry = chunk_stream(&TEXELS, 10, 10, &[10, 10]);
+        assert!(matches!(decode(&entry, entry.len()), Err(MeshError::Unsupported(m)) if m.contains("6 left")));
+        // Blocks that add up to less than the mip.
+        let entry = chunk_stream(&TEXELS, 10, 10, &[6, 6]);
+        assert!(matches!(decode(&entry, entry.len()), Err(MeshError::Truncated(_))));
+        // An entry that runs past the end of the file is refused before it is read.
+        assert!(matches!(decode(&one, one.len() + 1), Err(MeshError::Truncated(_))));
+        assert!(matches!(decode(&one, MAX_MIP_BYTES), Err(MeshError::Truncated(_))));
+    }
+
+    #[test]
+    fn mips_larger_than_the_game_uses_are_not_decoded() {
+        let mut texture = texture("Cache", 0, true);
+        let folder = Folder::new("sides");
+        for (side, refused) in [(4096, false), (4097, true), (8192, true)] {
+            let mip = &mut texture.mips[0];
+            (mip.width, mip.height) = (side, 2);
+            let result = texture.decode(&texture.mips[0], &folder.0);
+            // A side within the limit gets as far as finding the data short.
+            assert_eq!(matches!(result, Err(MeshError::Unsupported(_))), refused, "{side}");
+            assert_eq!(matches!(result, Err(MeshError::Truncated(_))), !refused, "{side}");
+        }
     }
 
     #[test]

@@ -23,6 +23,8 @@ use gkcore::{
 };
 use serde_json::{json, Value};
 
+use crate::dialogs;
+
 /// What a command asks the window to do after answering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
@@ -59,6 +61,9 @@ pub struct Api {
     notices: Vec<String>,
     /// `Some` only in self-test mode: the folder the self-test log is written in.
     selftest_dir: Option<PathBuf>,
+    /// Whether `open_file` and `export_file` take only paths the user chose in a dialog.
+    /// On in the running app; off in tests and the self-test, which name their own files.
+    chosen_paths_only: bool,
 }
 
 type CommandResult = Result<Value, String>;
@@ -228,7 +233,7 @@ fn entry_json(core: &Core, e: &CharacterEntry) -> Value {
         "saveGameId": e.save_game_id,
         "access": access_json(&e.access),
         "isTestSlot": core.settings().is_test_slot(&e.slot_id),
-        "createdByApp": core.settings().is_created_by_app(&e.slot_id),
+        "createdByApp": e.access == WriteAccess::Writable(WritableBecause::CreatedByApp),
         "canBeTestSlot": standard_slot && !e.protected,
         "protected": e.protected,
         "steamCloud": e.steam_cloud,
@@ -461,6 +466,7 @@ impl Api {
             Box::new(CoreConfig::live)
         };
         let mut api = Api::with_config(config);
+        api.chosen_paths_only = selftest_dir.is_none();
         api.selftest_dir = selftest_dir;
         let (sender, result) = mpsc::channel();
         let percent = Arc::new(AtomicU32::new(0));
@@ -494,7 +500,29 @@ impl Api {
             game: None,
             notices: Vec::new(),
             selftest_dir: None,
+            chosen_paths_only: false,
         }
+    }
+
+    /// Something the user should be told once, with the next status.
+    pub fn notify(&mut self, notice: String) {
+        self.notices.push(notice);
+    }
+
+    /// After a command panicked: the open character may be half changed, so it is closed.
+    pub fn recover_from_panic(&mut self) {
+        self.session = None;
+        self.game = None;
+    }
+
+    /// `path`, if the page may use it for `purpose`: in the running app, only a path the
+    /// user chose in the Open or Save dialog.
+    fn chosen_path(&self, args: &Value, purpose: dialogs::Purpose) -> Result<PathBuf, String> {
+        let path = PathBuf::from(text_arg(args, "path")?);
+        if self.chosen_paths_only && !dialogs::was_chosen(purpose, &path) {
+            return Err("Choose the file in the dialog first.".to_string());
+        }
+        Ok(path)
     }
 
     /// Run one command. `Err` is a message for the user.
@@ -546,6 +574,10 @@ impl Api {
                 };
                 self.notices.push(format!("The game's item data finished loading, and {what}."));
             }
+        }
+        // Built, but not kept for next time: worth a line in the log, not a word to the user.
+        if let Some(problem) = &catalog.database().cache_problem {
+            crate::errlog::write(&format!("item data: {problem}"));
         }
         self.item_data = ItemData::Ready(catalog);
     }
@@ -816,13 +848,13 @@ impl Api {
                 self.character()
             }
             "open_file" => {
-                let path = PathBuf::from(text_arg(args, "path")?);
+                let path = self.chosen_path(args, dialogs::Purpose::Open)?;
                 let session = self.core()?.open_file(&path).map_err(message)?;
                 self.session = Some(session);
                 self.character()
             }
             "export_file" => {
-                let path = PathBuf::from(text_arg(args, "path")?);
+                let path = self.chosen_path(args, dialogs::Purpose::Export)?;
                 let (core, session) = self.open_parts()?;
                 let report = core.export(session, &path).map_err(message)?;
                 Ok(json!({ "report": export_json(&report) }))
@@ -847,14 +879,29 @@ impl Api {
                 self.character()
             }
             "discard_changes" => {
-                let (_, session) = self.open_parts()?;
-                session.discard_all();
+                // Starting over reads the file again, so a file that changed on disk (the
+                // game saved) is seen as it is now. If it cannot be read, the changes are
+                // still dropped, on the copy read before.
+                let (core, session) = self.open_parts()?;
+                let fresh = match session.source() {
+                    SessionSource::Slot(slot) => core.open(slot).ok(),
+                    SessionSource::External(path) => core.open_file(path).ok(),
+                };
+                match fresh {
+                    Some(fresh) => self.session = Some(fresh),
+                    None => session.discard_all(),
+                }
                 self.character()
             }
             "save" => self.save(),
             "save_as_new" => self.save_as_new(args),
             "list_backups" => self.list_backups(args),
             "restore_backup" => self.restore_backup(args),
+            "delete_backup" => {
+                let id = text_arg(args, "backupId")?;
+                self.core.as_mut().map_err(|e| e.message.clone())?.delete_backup(id).map_err(message)?;
+                Ok(Value::Null)
+            }
             "mark_test_slot" => self.set_test_slot(args, true),
             "unmark_test_slot" => self.set_test_slot(args, false),
             "set_theme" => {

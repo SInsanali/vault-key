@@ -74,6 +74,12 @@ pub struct SkeletalMesh {
 
 /// Bones, sections, chunks and vertices above these counts are treated as corrupt.
 const MAX_BONES: usize = 1024;
+/// Most triangles a mesh, or a picture's scene, may have. The largest mesh of the game's
+/// startup packages has 25,227 triangles (and 28,268 vertices); a scene of this many takes
+/// about 32 MB.
+pub(crate) const MAX_TRIANGLES: usize = 1 << 18;
+/// Most vertices a mesh may have.
+pub(crate) const MAX_VERTICES: usize = 1 << 18;
 
 impl SkeletalMesh {
     /// Reads the mesh stored in export `index` of `pkg`.
@@ -88,7 +94,7 @@ impl SkeletalMesh {
 
     /// Parses the bytes that follow a SkeletalMesh's tagged properties. `names` is the
     /// package's name table (bone names are stored as indices into it).
-    pub fn parse(native: &[u8], names: &[String]) -> Result<Self> {
+    pub fn parse<S: AsRef<str>>(native: &[u8], names: &[S]) -> Result<Self> {
         let mut c = Cursor::new(native);
         let bounds_origin = c.vec3()?;
         let bounds_extent = c.vec3()?;
@@ -145,6 +151,9 @@ impl SkeletalMesh {
             return Err(MeshError::Unsupported(format!("index size {index_size} / element size {element_size}")));
         }
         let index_count = c.count(index_size, "indices")?;
+        if index_count / 3 > MAX_TRIANGLES {
+            return Err(MeshError::Unsupported(format!("{} triangles", index_count / 3)));
+        }
         let raw = c.take(index_count * index_size)?;
         let indices: Vec<u32> = if index_size == 2 {
             raw.as_chunks::<2>().0.iter().map(|b| u32::from(u16::from_le_bytes(*b))).collect()
@@ -209,6 +218,9 @@ impl SkeletalMesh {
             return Err(MeshError::Unsupported(format!("vertex size {element_size}, expected {expected}")));
         }
         let vertex_count = c.count(expected, "vertices")?;
+        if vertex_count > MAX_VERTICES {
+            return Err(MeshError::Unsupported(format!("{vertex_count} vertices")));
+        }
         if vertex_count != vertex_total as usize {
             return Err(MeshError::Unsupported(format!("{vertex_count} vertices in the buffer, {vertex_total} declared")));
         }
@@ -299,11 +311,12 @@ fn unpack(b: u8) -> f32 {
 }
 
 /// An FName: name-table index plus number (a number above 0 appends `_<number-1>`).
-fn read_name(c: &mut Cursor<'_>, names: &[String]) -> Result<String> {
+fn read_name<S: AsRef<str>>(c: &mut Cursor<'_>, names: &[S]) -> Result<String> {
     let (index, number) = (c.i32()?, c.i32()?);
     let base = usize::try_from(index)
         .ok()
         .and_then(|i| names.get(i))
+        .map(AsRef::as_ref)
         .ok_or_else(|| MeshError::Unsupported(format!("name index {index}")))?;
-    Ok(if number > 0 { format!("{base}_{}", number - 1) } else { base.clone() })
+    Ok(if number > 0 { format!("{base}_{}", number - 1) } else { base.to_string() })
 }
