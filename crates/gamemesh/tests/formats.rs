@@ -10,10 +10,10 @@ use std::sync::Arc;
 use gamedata::package::UPackage;
 use gamemesh::balances::weapon_balances;
 use gamemesh::material::{GunSkin, MaterialParameters, SkinDetail};
-use gamemesh::picture::whole_gestalt_scene;
+use gamemesh::picture::{weapon_scene, whole_gestalt_scene};
 use gamemesh::render::{render, render_with, View};
 use gamemesh::texture::{PixelFormat, Texture};
-use gamemesh::{GestaltMesh, PartLook, Section, SkeletalMesh};
+use gamemesh::{Assembly, AssemblyPart, GestaltMesh, MeshError, PartLook, Section, SkeletalMesh};
 use support::{mesh_native, Pkg, Rng};
 
 const SQUARE: [[f32; 3]; 4] = [[0.0, -4.0, -2.0], [0.0, 4.0, -2.0], [0.0, 4.0, 2.0], [0.0, -4.0, 2.0]];
@@ -407,4 +407,70 @@ fn damaged_texture_cache_never_panics() {
     let mut sneaky = texture.clone();
     sneaky.cache_name = Some("..\\TestCache".into());
     assert!(sneaky.decode(&sneaky.mips[0], &dir.0).is_err());
+}
+
+/// Most triangles a mesh or a picture may have (`skeletal::MAX_TRIANGLES`).
+const MAX_TRIANGLES: usize = 1 << 18;
+
+/// A gestalt definition over a mesh of `triangles` triangles, with `copies` fragments called
+/// `Frag` that each cover the whole mesh.
+fn repeated_gestalt(triangles: usize, copies: usize) -> Result<GestaltMesh, MeshError> {
+    let mut p = Pkg::new();
+    let root = p.name("Root");
+    let indices = [0u16, 1, 2].repeat(triangles);
+    let native = mesh_native(&SQUARE, &indices, &[(root, 0)]);
+    let body = p.body(&[], &native);
+    let mesh = p.export("SkeletalMesh", 0, "Mesh", body);
+    let fragment = [p.name_at("SkeletalMeshFragmentName", 0, "Frag"), p.int("NumPrimitives", triangles as i32)].concat();
+    let info = p.structs("Parts", &vec![fragment; copies]);
+    let tags = [p.object("GestaltSkeletalMesh", mesh), p.structs("GestaltInfos", &[info])];
+    let body = p.body(&tags, &[]);
+    p.export("GestaltSkeletalMeshDefinition", 0, "Def", body);
+    let pkg = p.parse().unwrap();
+    GestaltMesh::from_export(&pkg, index(&pkg, "Def"))
+}
+
+fn naming(fragment: &str, times: usize) -> Assembly {
+    let part = AssemblyPart { slot: 0, definition: "Part".into(), fragments: vec![fragment.to_string(); times] };
+    Assembly {
+        weapon_type: "Type".into(),
+        gestalt: "Def".into(),
+        parts: vec![part],
+        material: None,
+        unresolved_slots: Vec::new(),
+        is_item: false,
+        glow: None,
+    }
+}
+
+#[test]
+fn repeated_fragments_cannot_multiply_triangles_without_bound() {
+    // A definition whose fragments add up to the limit reads; one more triangle does not.
+    let quarter = MAX_TRIANGLES / 4;
+    let g = repeated_gestalt(quarter, 4).unwrap();
+    assert_eq!(g.fragments_named("Frag").count(), 4);
+    let refused = repeated_gestalt(quarter, 5).unwrap_err();
+    assert!(matches!(&refused, MeshError::Unsupported(m) if m.contains("in all")), "{refused}");
+    let refused = repeated_gestalt(quarter + 1, 4).unwrap_err();
+    assert!(matches!(refused, MeshError::Unsupported(_)));
+
+    // Parts that name the same fragment again: the picture is refused before it is built.
+    let g = repeated_gestalt(1000, 1).unwrap();
+    let (scene, missing) = weapon_scene(&g, &naming("Frag", 9)).unwrap();
+    assert_eq!((scene.triangles.len(), missing.len()), (9000, 0));
+    let times = MAX_TRIANGLES / 1000 + 1;
+    let refused = weapon_scene(&g, &naming("Frag", times)).unwrap_err();
+    assert!(matches!(&refused, MeshError::Unsupported(m) if m.contains("triangles in the picture")), "{refused}");
+}
+
+#[test]
+fn meshes_over_the_size_limits_are_refused() {
+    let names = ["None", "Root"];
+    let triangle = [0u16, 1, 2];
+    assert!(SkeletalMesh::parse(&mesh_native(&SQUARE, &triangle.repeat(MAX_TRIANGLES), &[(1, 0)]), &names).is_ok());
+    let refused = SkeletalMesh::parse(&mesh_native(&SQUARE, &triangle.repeat(MAX_TRIANGLES + 1), &[(1, 0)]), &names);
+    assert!(matches!(refused, Err(MeshError::Unsupported(m)) if m.contains("triangles")));
+    let many: Vec<[f32; 3]> = (0..=MAX_TRIANGLES).map(|i| [0.0, i as f32, 0.0]).collect();
+    let refused = SkeletalMesh::parse(&mesh_native(&many, &triangle, &[(1, 0)]), &names);
+    assert!(matches!(refused, Err(MeshError::Unsupported(m)) if m.contains("vertices")));
 }
