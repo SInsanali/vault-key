@@ -37,9 +37,18 @@ pub struct MaterialParameters {
 impl MaterialParameters {
     /// Reads the instance at `path` in `pkg` and its parents (all in the same package).
     pub fn read(pkg: &UPackage, path: &str) -> Result<Self> {
+        Self::read_across(std::slice::from_ref(pkg), path)
+    }
+
+    /// Reads the instance at `path` and its parents, wherever in `packages` each is (a DLC
+    /// skin's parent is often a base-game instance). A parent in none of them ends the chain,
+    /// its path kept as the last entry so the family can still be told.
+    pub fn read_across(packages: &[UPackage], path: &str) -> Result<Self> {
+        let all = crate::weapon::Packages(packages);
         let mut out = Self::default();
-        let mut index = pkg.export_index(path).ok_or_else(|| MeshError::Missing(format!("material {path}")))?;
+        let (mut at, mut index) = all.locate(path).ok_or_else(|| MeshError::Missing(format!("material {path}")))?;
         for _ in 0..MAX_CHAIN {
+            let pkg = all.get(at);
             out.chain.push(pkg.export_path(index)?);
             if pkg.class_name_of_export(index) != "MaterialInstanceConstant" {
                 break;
@@ -47,9 +56,15 @@ impl MaterialParameters {
             let (props, native) = pkg.properties_and_native_data(index)?;
             out.absorb(pkg, &props)?;
             out.absorb_static_masks(pkg, native);
-            match props.object("Parent") {
-                Some(parent) if parent > 0 => index = (parent - 1) as usize,
-                _ => break,
+            let Some(parent) = props.object("Parent").filter(|&r| r != 0) else { break };
+            match all.resolve(at, parent) {
+                Some(next) => (at, index) = next,
+                None => {
+                    if let Ok(name) = pkg.path_of(parent) {
+                        out.chain.push(name);
+                    }
+                    break;
+                }
             }
         }
         Ok(out)
@@ -143,9 +158,13 @@ pub enum LayerChannel {
 }
 
 impl LayerChannel {
-    fn from_mask(mask: Option<[bool; 4]>) -> Self {
+    /// `unset` is what a material without the static mask gets: gun patterns are colour
+    /// images (Jakobs wood, Bandit paint), item patterns are packed `_Comp` masks whose red
+    /// channel holds the pattern (read as colour, their blue and green turn it to glitter).
+    fn from_mask(mask: Option<[bool; 4]>, unset: Self) -> Self {
         match mask {
-            Some([true, true, true, _]) | None => Self::Colour,
+            None => unset,
+            Some([true, true, true, _]) => Self::Colour,
             Some(mask) => Self::Grey(mask.iter().position(|&on| on).unwrap_or(0)),
         }
     }
@@ -248,6 +267,34 @@ pub enum SkinDetail {
     Textured,
 }
 
+/// Which master material a skin is an instance of, and so how its textures are laid out.
+/// The game has one shader per family; the cooked packages keep only their parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkinFamily {
+    /// `Master_Gun`: the mask texture is two maps stacked, colour zones below and the
+    /// highlight and shadow masks above; `p_Diffuse` is a greyscale drawing shared by three
+    /// weapon classes, one per channel (`p_WeapClassSelect`); the fourth colour is `p_DColor`.
+    Gun,
+    /// `Master_ShieldGrenade` and the class mod masters: the two maps of the mask texture sit
+    /// side by side, highlight and shadow masks on the left, colour zones on the right;
+    /// `p_Diffuse` is an ordinary colour drawing of the whole layout; the fourth colour is
+    /// `p_ColorD`.
+    Item,
+}
+
+impl SkinFamily {
+    /// The family of a material, from the master material its chain ends at. Anything not
+    /// recognised is read as a gun skin, as it always was.
+    pub fn of(params: &MaterialParameters) -> Self {
+        let master = params.chain.last().map(|m| m.to_ascii_lowercase()).unwrap_or_default();
+        if master.ends_with(".master_shieldgrenade") || master.contains(".master_classmod") {
+            Self::Item
+        } else {
+            Self::Gun
+        }
+    }
+}
+
 /// An approximation of the game's weapon material.
 ///
 /// The mask texture (`p_Masks`) is two maps stacked: its lower half marks the three colour
@@ -257,6 +304,7 @@ pub enum SkinDetail {
 /// static mask `p_WeapClassSelect` says which.
 pub struct GunSkin {
     pub detail: SkinDetail,
+    pub family: SkinFamily,
     masks: Arc<Pixels>,
     diffuse: Arc<Pixels>,
     diffuse_channel: usize,
@@ -273,7 +321,10 @@ pub struct GunSkin {
 impl GunSkin {
     /// The pattern texture a material names, if it has a pattern layer.
     pub fn pattern_path(params: &MaterialParameters) -> Option<&str> {
-        params.texture("p_Pattern").filter(|_| params.vector("p_PatternChannelScale").is_some_and(|s| s.iter().any(|&v| v > 0.0)))
+        params
+            .texture("p_Pattern")
+            .or_else(|| params.texture("p_CustomPattern"))
+            .filter(|_| params.vector("p_PatternChannelScale").is_some_and(|s| s.iter().any(|&v| v > 0.0)))
     }
 
     /// The decal texture a material names, if it has one.
@@ -287,7 +338,13 @@ impl GunSkin {
         let strength = params.vector("p_PatternChannelScale").unwrap_or([0.0; 4]).map(sane);
         self.pattern = Some(Pattern {
             pixels,
-            channel: LayerChannel::from_mask(params.channel_mask("p_PatternChannel")),
+            channel: LayerChannel::from_mask(
+                params.channel_mask("p_PatternChannel"),
+                match SkinFamily::of(params) {
+                    SkinFamily::Gun => LayerChannel::Colour,
+                    SkinFamily::Item => LayerChannel::Grey(0),
+                },
+            ),
             scale: [scale_position[0], scale_position[1]],
             offset: [scale_position[2], scale_position[3]],
             strength,
@@ -302,7 +359,7 @@ impl GunSkin {
         let scale_position = params.vector("p_DecalScalePosition").unwrap_or([1.0, 1.0, 0.0, 0.0]).map(sane_signed);
         self.decal = Some(Decal {
             pixels,
-            channel: LayerChannel::from_mask(params.channel_mask("p_DecalChannel")),
+            channel: LayerChannel::from_mask(params.channel_mask("p_DecalChannel"), LayerChannel::Colour),
             scale: [scale_position[0], scale_position[1]],
             offset: [scale_position[2], scale_position[3]],
             colour: params.vector("p_DecalColor").map_or([1.0; 3], |c| [c[0], c[1], c[2]].map(sane)),
@@ -323,13 +380,19 @@ impl GunSkin {
     pub fn new(params: &MaterialParameters, masks: Arc<Pixels>, diffuse: Arc<Pixels>, detail: SkinDetail) -> Self {
         let rgb = |name: &str| params.vector(name).map_or([1.0, 1.0, 1.0], |v| [v[0], v[1], v[2]].map(sane));
         let zone = |letter: char| ["Hilight", "Midtone", "Shadow"].map(|tone| rgb(&format!("p_{letter}Color{tone}")));
+        let family = SkinFamily::of(params);
+        let rest = match family {
+            SkinFamily::Gun => "p_DColor",
+            SkinFamily::Item => "p_ColorD",
+        };
         Self {
             detail,
+            family,
             masks,
             diffuse,
             diffuse_channel: params.channel("p_WeapClassSelect").unwrap_or(0),
             zones: [zone('A'), zone('B'), zone('C')],
-            rest: rgb("p_DColor"),
+            rest: rgb(rest),
             highlights: sane(params.scalar("p_HighlightsIntensity").unwrap_or(2.0)),
             shadows: sane(params.scalar("p_ShadowsIntensity").unwrap_or(2.0)),
             pattern: None,
@@ -385,21 +448,42 @@ impl Shader for GunSkin {
     fn shade(&self, sample: &Sample) -> [u8; 3] {
         let (u, v) = (sample.uv[0], sample.uv[1].clamp(0.0, 0.9999));
         let uv1 = [sample.uv[2], sample.uv[3]];
-        let zone_mask = self.masks.sample(u, 0.5 + v * 0.5);
+        // Where the zone map and the detail map are read for this point (see SkinFamily).
+        let (zone_at, detail_at) = match self.family {
+            SkinFamily::Gun => ((u, 0.5 + v * 0.5), (u, v * 0.5)),
+            SkinFamily::Item => {
+                let u = u.clamp(0.0, 0.9999);
+                ((0.5 + u * 0.5, v), (u * 0.5, v))
+            }
+        };
+        let zone_mask = self.masks.sample(zone_at.0, zone_at.1);
         let weights = [f32::from(zone_mask[0]), f32::from(zone_mask[1]), f32::from(zone_mask[2])].map(|w| w / 255.0);
         let marked = (weights[0] + weights[1] + weights[2]).max(1e-6);
         // How much of the zone's shadow and highlight tones show here.
         let (mut shadow, mut highlight, mut grey) = (0.0, 0.0, 0.5);
         if self.detail == SkinDetail::Textured {
+            // Kept half a texel inside its own map, so the other map never bleeds in.
             // (`half` is at most a quarter, so the bounds below are always in order.)
-            let half = (0.5 / self.masks.height.max(1) as f32).min(0.25);
-            let detail = self.masks.sample_linear(u, (v * 0.5).clamp(half, 0.5 - half));
+            let detail = match self.family {
+                SkinFamily::Gun => {
+                    let half = (0.5 / self.masks.height.max(1) as f32).min(0.25);
+                    self.masks.sample_linear(detail_at.0, detail_at.1.clamp(half, 0.5 - half))
+                }
+                SkinFamily::Item => {
+                    let half = (0.5 / self.masks.width.max(1) as f32).min(0.25);
+                    self.masks.sample_linear(detail_at.0.clamp(half, 0.5 - half), detail_at.1)
+                }
+            };
             // The intensities read as exponents: a high value keeps the tone to where the
             // mask is strongest (the data gives Jakobs skins a shadow intensity of 8, and
             // their wood would turn blue under any multiplier reading).
             highlight = (detail[0] / 255.0).clamp(0.0, 1.0).powf(self.highlights.max(0.05));
             shadow = (detail[1] / 255.0).clamp(0.0, 1.0).powf(self.shadows.max(0.05));
-            grey = self.diffuse.sample_linear(u, v)[self.diffuse_channel.min(3)] / 255.0;
+            let texel = self.diffuse.sample_linear(u, v);
+            grey = match self.family {
+                SkinFamily::Gun => texel[self.diffuse_channel.min(3)] / 255.0,
+                SkinFamily::Item => (0.2126 * texel[0] + 0.7152 * texel[1] + 0.0722 * texel[2]) / 255.0,
+            };
         }
         let pattern = self.pattern.as_ref().map(|p| p.at(uv1));
         // Each zone's colour: its tones, then its share of the pattern; then the zones are
@@ -429,5 +513,157 @@ impl Shader for GunSkin {
         }
         let lit = BAND_BRIGHTNESS[sample.band.min(2)];
         to_srgb(colour.map(|c| c * lit * lit))
+    }
+}
+
+/// The relic texture. Relics share one base `Material` (`Mat_ItemArtifact`) whose shader
+/// graph is stripped from the cooked package, so nothing in the data names the texture it
+/// samples; this is the only texture in the relic package.
+pub const RELIC_TEXTURE: &str = "Item_Artifacts.Textures.ItemArtifacts_Comp";
+
+/// An approximation of the relic material: the whole relic glows in its type's colour.
+///
+/// What the data gives: the material is emissive, two-sided and drawn without the game's
+/// edge outlines; each relic kind's body part sets `p_EmissiveColor` (Tenacity green,
+/// Vitality red, Elemental purple, …). The texture is three masks: a cloudy surface with
+/// drawn swirls (red), edge highlights (green) and the glyphs, bars and dots that light up
+/// (blue). It is tiled many times over the mesh. How they are combined is chosen by eye.
+pub struct RelicSkin {
+    texture: Option<Arc<Pixels>>,
+    /// The glow colour, brought into range (linear RGB).
+    glow: [f32; 3],
+}
+
+impl RelicSkin {
+    /// The colour a relic glows when its parts set none: `Mat_ItemArtifact`'s own default.
+    pub const DEFAULT_GLOW: [f32; 3] = [0.077, 0.232, 1.0];
+
+    pub fn new(glow: [f32; 3], texture: Option<Arc<Pixels>>) -> Self {
+        let glow = fit(glow.map(sane));
+        // A colour with no light in it would draw a black relic; use the default instead.
+        let glow = if glow.iter().all(|&c| c < 0.01) { Self::DEFAULT_GLOW } else { glow };
+        Self { texture, glow }
+    }
+}
+
+impl Shader for RelicSkin {
+    fn shade(&self, sample: &Sample) -> [u8; 3] {
+        let (surface, edge, glyph) = match &self.texture {
+            Some(texture) => {
+                let t = texture.sample_linear(sample.uv[0], sample.uv[1]).map(|c| (c / 255.0).clamp(0.0, 1.0));
+                (t[0], t[1], t[2])
+            }
+            None => (0.6, 0.0, 0.0),
+        };
+        let glow = self.glow;
+        // A dark body in the glow colour, shaped by the drawn surface ...
+        let body = glow.map(|c| c * (0.18 + 0.55 * surface));
+        // ... with its edges and glyphs lit: the glow colour, washed toward white where it
+        // burns brightest, as the game's bloom does.
+        let hot = glow.map(|c| c * 0.75 + 0.25);
+        let lit = mix(mix(body, glow, edge * 0.7), hot, glyph);
+        // Emissive: the light bands touch it only a little.
+        let band = BAND_BRIGHTNESS[sample.band.min(2)].sqrt();
+        to_srgb(lit.map(|c| c * band))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A texture `width` × `height` whose left half is `left` and right half `right`, top half
+    /// over bottom half as given.
+    fn halves(width: u32, height: u32, texel: impl Fn(u32, u32) -> [u8; 4]) -> Arc<Pixels> {
+        let mut rgba = Vec::new();
+        for y in 0..height {
+            for x in 0..width {
+                rgba.extend(texel(x, y));
+            }
+        }
+        Arc::new(Pixels { width, height, rgba })
+    }
+
+    fn params(master: &str, rest: &str) -> MaterialParameters {
+        let mut p = MaterialParameters { chain: vec!["Mati_Test".into(), master.into()], ..Default::default() };
+        for tone in ["Hilight", "Midtone", "Shadow"] {
+            p.vectors.insert(format!("p_acolor{tone}").to_ascii_lowercase(), [1.0, 0.0, 0.0, 1.0]);
+            p.vectors.insert(format!("p_bcolor{tone}").to_ascii_lowercase(), [0.0, 0.0, 1.0, 1.0]);
+            p.vectors.insert(format!("p_ccolor{tone}").to_ascii_lowercase(), [1.0, 1.0, 1.0, 1.0]);
+        }
+        p.vectors.insert(rest.to_ascii_lowercase(), [0.0, 1.0, 0.0, 1.0]);
+        p
+    }
+
+    fn sample(u: f32, v: f32) -> Sample {
+        Sample { group: 0, uv: [u, v, 0.0, 0.0], light: 1.0, band: 0, normal: [-1.0, 0.0, 0.0] }
+    }
+
+    fn strongest(c: [u8; 3]) -> usize {
+        (0..3).max_by_key(|&i| c[i]).unwrap()
+    }
+
+    #[test]
+    fn the_family_comes_from_the_master_material() {
+        let of = |master: &str| SkinFamily::of(&params(master, "p_DColor"));
+        assert_eq!(of("Common_Materials.Weapons.Master_Gun"), SkinFamily::Gun);
+        assert_eq!(of("Common_Materials.Items.Master_ShieldGrenade"), SkinFamily::Item);
+        assert_eq!(of("Common_Materials.Items.Master_ClassMod_02"), SkinFamily::Item);
+        assert_eq!(of("Item_ClassMods.Mat.Master_ClassMod"), SkinFamily::Item);
+        assert_eq!(of("Something.Else"), SkinFamily::Gun);
+    }
+
+    /// One mask texture, read both ways. Its left half marks zone B (green), its right half
+    /// zone A (red); zone A is drawn red, zone B blue. An item reads the zones from the right
+    /// half (red); a gun from the bottom half, here the left half's green (blue).
+    #[test]
+    fn item_masks_sit_side_by_side_and_gun_masks_stacked() {
+        let masks = halves(4, 4, |x, _| if x < 2 { [0, 255, 0, 255] } else { [255, 0, 0, 255] });
+        let grey = halves(2, 2, |_, _| [128, 128, 128, 255]);
+        let item = GunSkin::new(&params("Common_Materials.Items.Master_ShieldGrenade", "p_ColorD"), masks.clone(), grey.clone(), SkinDetail::Flat);
+        let gun = GunSkin::new(&params("Common_Materials.Weapons.Master_Gun", "p_DColor"), masks, grey, SkinDetail::Flat);
+        assert_eq!(strongest(item.shade(&sample(0.25, 0.5))), 0, "item: zone A, red");
+        assert_eq!(strongest(gun.shade(&sample(0.25, 0.5))), 2, "gun: zone B, blue");
+    }
+
+    /// Where no zone is marked the fourth colour shows: `p_ColorD` on items, not white.
+    #[test]
+    fn items_take_their_fourth_colour_from_p_color_d() {
+        let blank = halves(4, 4, |_, _| [0, 0, 0, 255]);
+        let grey = halves(2, 2, |_, _| [128, 128, 128, 255]);
+        let item = GunSkin::new(&params("Common_Materials.Items.Master_ShieldGrenade", "p_ColorD"), blank, grey, SkinDetail::Flat);
+        let c = item.shade(&sample(0.3, 0.3));
+        assert!(c[1] > 100 && c[0] < 20 && c[2] < 20, "{c:?}");
+    }
+
+    #[test]
+    fn item_patterns_without_a_channel_mask_are_read_as_grey() {
+        let mut p = params("Common_Materials.Items.Master_ShieldGrenade", "p_ColorD");
+        p.vectors.insert("p_patternchannelscale".into(), [1.0, 0.0, 0.0, 0.0]);
+        let pattern = halves(2, 2, |_, _| [200, 0, 255, 255]);
+        let masks = halves(4, 4, |x, _| if x < 2 { [0, 0, 0, 255] } else { [255, 0, 0, 255] });
+        let grey = halves(2, 2, |_, _| [128, 128, 128, 255]);
+        // Zone A in white so the pattern's own colour would show if it were read as colour.
+        for tone in ["hilight", "midtone", "shadow"] {
+            p.vectors.insert(format!("p_acolor{tone}"), [1.0, 1.0, 1.0, 1.0]);
+        }
+        let skin = GunSkin::new(&p, masks, grey, SkinDetail::Flat).with_pattern(&p, pattern);
+        let c = skin.shade(&sample(0.25, 0.5));
+        // Grey: the red channel (200) as a grey mask, so no magenta cast.
+        assert!(c[0].abs_diff(c[1]) < 3 && c[1].abs_diff(c[2]) < 3, "{c:?}");
+    }
+
+    #[test]
+    fn relics_glow_in_their_colour() {
+        let green = RelicSkin::new([0.0, 1.0, 0.1], None);
+        assert_eq!(strongest(green.shade(&sample(0.5, 0.5))), 1);
+        // A black glow would draw a black relic: the material's default blue instead.
+        let none = RelicSkin::new([0.0, 0.0, 0.0], None);
+        assert_eq!(strongest(none.shade(&sample(0.5, 0.5))), 2);
+        // The glyphs (blue channel of the texture) are brighter than the bare surface.
+        let texture = halves(2, 2, |x, _| if x == 0 { [128, 0, 0, 255] } else { [128, 0, 255, 255] });
+        let skin = RelicSkin::new([1.0, 0.2, 0.0], Some(texture));
+        let (bare, glyph) = (skin.shade(&sample(0.25, 0.5)), skin.shade(&sample(0.75, 0.5)));
+        assert!(glyph.iter().map(|&c| u32::from(c)).sum::<u32>() > bare.iter().map(|&c| u32::from(c)).sum::<u32>());
     }
 }

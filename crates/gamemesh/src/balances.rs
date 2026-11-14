@@ -85,3 +85,47 @@ pub fn weapon_balances(pkg: &UPackage) -> Vec<BalanceParts> {
     }
     out
 }
+
+/// The item definition classes that list their own parts, and the part-list property of each
+/// slot, in save order (alpha to theta, then the material).
+const ITEM_DEFINITION_CLASSES: [&str; 3] = ["ShieldDefinition", "GrenadeModDefinition", "ArtifactDefinition"];
+const ITEM_SLOT_PROPERTIES: [&str; 9] =
+    ["AlphaParts", "BetaParts", "GammaParts", "DeltaParts", "EpsilonParts", "ZetaParts", "EtaParts", "ThetaParts", "MaterialParts"];
+
+/// Every shield, grenade mod and relic definition in `pkg` with the parts its own lists allow
+/// (lists held in another package are left empty), and every class mod definition with no
+/// parts: a class mod is its one mesh. `weapon_type` is the definition itself. Used to draw a
+/// sample of everything a package adds.
+pub fn item_definitions(pkg: &UPackage) -> Vec<BalanceParts> {
+    let mut out = Vec::new();
+    for class in ITEM_DEFINITION_CLASSES {
+        for &index in pkg.exports_of_class(class) {
+            let read = || -> Result<BalanceParts> {
+                let path = pkg.export_path(index)?;
+                let props = pkg.properties_of_export(index)?;
+                let mut slots: [Vec<String>; 9] = Default::default();
+                for (slot, property) in ITEM_SLOT_PROPERTIES.iter().enumerate() {
+                    let Some(list) = props.object(property).filter(|&r| r > 0) else { continue };
+                    let list = pkg.properties_of_export((list - 1) as usize)?;
+                    if let Some(parts) = list.get("WeightedParts") {
+                        for entry in pkg.struct_array(parts)? {
+                            if let Some(part) = entry.object("Part").and_then(|r| pkg.path_of(r).ok()).filter(|p| !p.is_empty()) {
+                                slots[slot].push(part);
+                            }
+                        }
+                    }
+                }
+                Ok(BalanceParts { balance: path.clone(), weapon_type: Some(path), slots })
+            };
+            if let Ok(parts) = read() {
+                out.push(parts);
+            }
+        }
+    }
+    for &index in pkg.exports_of_class("ClassModDefinition") {
+        if let Ok(path) = pkg.export_path(index) {
+            out.push(BalanceParts { balance: path.clone(), weapon_type: Some(path), slots: Default::default() });
+        }
+    }
+    out
+}

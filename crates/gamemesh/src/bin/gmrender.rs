@@ -18,6 +18,8 @@
 //!   --sheet <columns>        also one picture of all the subjects side by side (first size)
 //!   --all <gestalt path>     every fragment of one gestalt mesh at once
 //!   --sweep                  assemble and draw a sample of every balance's part combinations
+//!   --dlc                    one sheet per DLC: a sample of every weapon balance, shield,
+//!                            grenade mod, relic and class mod each DLC package adds
 //!   --bench                  timings
 //! ```
 
@@ -27,7 +29,7 @@ use std::time::Instant;
 
 use gamedata::package::UPackage;
 use gamedata::{GameInstall, ItemRefs};
-use gamemesh::balances::weapon_balances;
+use gamemesh::balances::{item_definitions, weapon_balances, BalanceParts};
 use gamemesh::picture::whole_gestalt_scene;
 use gamemesh::render::{render, Image, View};
 use gamemesh::{png, Assembly, Colouring, Facing, Pictures, Style, WeaponSource, WEAPON_SLOTS};
@@ -379,6 +381,70 @@ fn sweep(pictures: &mut Pictures, options: &Options, startup: &Path) -> Result<(
     Ok(())
 }
 
+/// Per DLC startup package: every weapon balance and item definition it holds, assembled from
+/// the first part of each slot's list, drawn to one sheet. Prints what could not be drawn.
+fn dlc_sheets(pictures: &mut Pictures, options: &Options, install: &GameInstall) -> Result<(), String> {
+    let mut drawn_total = 0;
+    for path in install.dlc_startup_packages() {
+        let name = path.file_stem().map(|s| s.to_string_lossy().replace("_Startup_SF", "")).unwrap_or_default();
+        let Ok(package) = UPackage::open(&path) else {
+            println!("{name}: unreadable");
+            continue;
+        };
+        let candidates: Vec<BalanceParts> = weapon_balances(&package).into_iter().chain(item_definitions(&package)).collect();
+        drop(package);
+        let mut subjects = Vec::new();
+        let mut failures: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for candidate in &candidates {
+            let Some(weapon_type) = candidate.weapon_type.as_deref() else { continue };
+            let mut parts: [Option<&str>; 9] = [None; 9];
+            for (slot, list) in candidate.slots.iter().enumerate() {
+                parts[slot] = list.first().map(String::as_str);
+            }
+            let label = candidate.balance.rsplit('.').next().unwrap_or(&candidate.balance).to_string();
+            let assembly = match pictures.source().assemble_paths(weapon_type, &parts) {
+                Ok(assembly) => assembly,
+                Err(e) => {
+                    failures.entry(format!("cannot assemble: {e}")).or_default().push(label);
+                    continue;
+                }
+            };
+            if !assembly.unresolved_slots.is_empty() {
+                failures.entry("a part is in none of the packages".into()).or_default().push(label);
+                continue;
+            }
+            // One picture per distinct look.
+            let key = (assembly.gestalt.clone(), assembly.material.clone(), assembly.fragments().map(|(_, f)| f.to_string()).collect::<Vec<_>>());
+            if !seen.insert(key) {
+                continue;
+            }
+            match pictures.assembly_image(&assembly, 64, 32) {
+                Ok(_) => {
+                    if let Some(problem) = pictures.skin_problem() {
+                        failures.entry(format!("drawn without its skin: {problem}")).or_default().push(label.clone());
+                    }
+                    subjects.push(Subject::Built(label, assembly));
+                }
+                Err(e) => failures.entry(format!("no picture: {e}")).or_default().push(label),
+            }
+        }
+        println!("{name}: {} candidates, {} distinct pictures", candidates.len(), subjects.len());
+        for (why, labels) in &failures {
+            println!("  {} x {why}; e.g. {}", labels.len(), labels.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
+        }
+        drawn_total += subjects.len();
+        if !subjects.is_empty() {
+            let dir = options.out.join(file_stem(&name));
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let sub = Options { out: dir, sizes: options.sizes.clone(), backdrop: options.backdrop, crop: None, style: options.style.clone() };
+            sheet(pictures, &sub, &subjects, 6)?;
+        }
+    }
+    println!("dlc: {drawn_total} distinct pictures");
+    Ok(())
+}
+
 /// Times opening and drawing. Writes nothing.
 fn bench(install: &GameInstall) -> Result<(), String> {
     let t = Instant::now();
@@ -420,7 +486,7 @@ fn bench(install: &GameInstall) -> Result<(), String> {
 
 fn run(args: &[String]) -> Result<(), String> {
     let usage = "usage: gmrender <out-dir> [--save f.sav] [--code BL2(...)] [--build spec] [--size WxH] [--backdrop RRGGBB] \
-                 [--facing left|right] [--colouring plain|flat|textured] [--angle yaw,pitch] [--crop l,t,r,b] [--sheet columns] [--all gestalt] [--sweep] [--bench]";
+                 [--facing left|right] [--colouring plain|flat|textured] [--angle yaw,pitch] [--crop l,t,r,b] [--sheet columns] [--all gestalt] [--sweep] [--dlc] [--bench]";
     let out = PathBuf::from(args.first().ok_or(usage)?);
     let install = GameInstall::locate().ok_or("game install not found")?;
     if args.iter().any(|a| a == "--bench") {
@@ -438,11 +504,16 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut subjects = Vec::new();
     let mut wholes = Vec::new();
     let mut sweeping = false;
+    let mut dlc = false;
     let mut sheet_columns = None;
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
         if flag == "--sweep" {
             sweeping = true;
+            continue;
+        }
+        if flag == "--dlc" {
+            dlc = true;
             continue;
         }
         let value = rest.next().ok_or_else(|| format!("{flag} needs a value\n{usage}"))?;
@@ -516,6 +587,9 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     if sweeping {
         sweep(&mut pictures, &options, &install.startup_package())?;
+    }
+    if dlc {
+        dlc_sheets(&mut pictures, &options, &install)?;
     }
     Ok(())
 }

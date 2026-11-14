@@ -12,9 +12,9 @@ use std::time::Instant;
 use gamedata::package::UPackage;
 use gamedata::{GameInstall, ItemRefs};
 use gamemesh::balances::weapon_balances;
-use gamemesh::material::MaterialParameters;
+use gamemesh::material::{MaterialParameters, SkinFamily};
 use gamemesh::texture::Texture;
-use gamemesh::{fragment_names, Colouring, Facing, GestaltMesh, PictureError, Pictures, SkeletalMesh, Style};
+use gamemesh::{fragment_names, Colouring, Facing, GestaltMesh, PictureError, Pictures, SkeletalMesh, Style, WeaponSource};
 use savekit::SaveDocument;
 
 const INFINITY: &str = "BL2(hwAAAADX0ACE5wRACiGT6cOQhYEQowHG/38JGBkw/v8rxACCgRED)";
@@ -260,8 +260,10 @@ fn the_default_view_is_the_unmirrored_left_side() {
 
 #[test]
 fn the_source_opens_without_problems() {
-    let Some(pictures) = pictures() else { return };
-    let source = pictures.source();
+    // The base game alone: the counts below do not depend on which DLC is installed.
+    let Some(install) = install() else { return };
+    let source = WeaponSource::open(&install.startup_package()).unwrap();
+    let source = &source;
     assert!(source.problems().is_empty(), "{:?}", source.problems());
     assert_eq!(source.weapon_types().count(), 33);
     // 75 shields, grenade mods and relics, built from parts, and 44 class mods, one mesh each.
@@ -390,7 +392,9 @@ fn what_cannot_be_drawn_says_why() {
         change(&mut item);
         item
     };
-    assert_eq!(pictures.weapon_image(&with(|i| i.set = Some(9)), 64, 32), Err(PictureError::DlcItem));
+    // An item of a DLC set whose numbers carry no DLC flag uses the base game's tables, as the
+    // game reads it: the same weapon.
+    assert_eq!(pictures.weapon_image(&with(|i| i.set = Some(9)), 64, 32), pictures.weapon_image(&infinity(), 64, 32));
     assert_eq!(pictures.weapon_image(&with(|i| i.set = Some(255)), 64, 32), Err(PictureError::NothingToDraw));
     assert_eq!(pictures.weapon_image(&with(|i| i.set = None), 64, 32), Err(PictureError::BadCode));
     // The weapon's type number read as an item type names a kind that is not built from parts.
@@ -404,7 +408,7 @@ fn what_cannot_be_drawn_says_why() {
     // An unknown skin does not stop the picture; it is drawn in plain colours and says so.
     let image = pictures.weapon_image(&with(|i| i.parts[8] = Some(131_071)), 64, 32).unwrap();
     assert!(opaque_share(&image.rgba) > 0.1 && pictures.skin_problem().is_some());
-    for e in [PictureError::BadCode, PictureError::NotAWeapon, PictureError::NothingToDraw, PictureError::DlcItem, PictureError::UnknownParts, PictureError::GameData("x".into())] {
+    for e in [PictureError::BadCode, PictureError::NotAWeapon, PictureError::NothingToDraw, PictureError::UnknownParts, PictureError::GameData("x".into())] {
         assert!(e.message().ends_with('.') && e.to_string().starts_with(e.message()));
     }
 }
@@ -593,4 +597,109 @@ fn pattern_layers_of_common_skins() {
     println!("Jakobs common pistol red/blue: with the wood pattern {:.3}, without {:.3}", warmth(&with), warmth(&without));
     assert!(warmth(&with) > warmth(&without) + 0.01);
     assert_ne!(with.rgba, without.rgba);
+}
+
+/// Of the drawn pixels, the share that is near white: high when a skin is read with the wrong
+/// layout and falls back to its white "rest" colour.
+fn near_white_share(rgba: &[u8]) -> f32 {
+    let drawn: Vec<&[u8; 4]> = rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).collect();
+    drawn.iter().filter(|p| p[..3].iter().all(|&c| c > 215)).count() as f32 / drawn.len().max(1) as f32
+}
+
+/// Mean colour of the drawn pixels.
+fn mean_colour(rgba: &[u8]) -> [f32; 3] {
+    let drawn: Vec<&[u8; 4]> = rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).collect();
+    let n = drawn.len().max(1) as f32;
+    [0, 1, 2].map(|c| drawn.iter().map(|p| f32::from(p[c])).sum::<f32>() / n)
+}
+
+#[test]
+fn skins_are_read_by_their_master_material() {
+    let Some(pictures) = pictures() else { return };
+    let source = pictures.source();
+    let family = |path: &str| SkinFamily::of(source.material(path).unwrap_or_else(|| panic!("{path} was read")));
+    assert_eq!(family("Common_GunMaterials.Materials.SMG.Mati_DahlEpicSMG"), SkinFamily::Gun);
+    assert_eq!(family("Item_Shields.Materials.Mati_ShieldTedioreEpic"), SkinFamily::Item);
+    assert_eq!(family("Weap_Grenades.Materials.Mati_GrenadeVladovRare"), SkinFamily::Item);
+    assert_eq!(family("Item_ClassMods.Mat.Mati_ClassMod_Siren_Banshee"), SkinFamily::Item);
+}
+
+/// Shields, grenade mods and class mods are coloured by their skin, not washed out to white;
+/// relics glow in the colour their kind sets.
+#[test]
+fn items_are_drawn_in_their_own_colours() {
+    let Some(mut pictures) = pictures() else { return };
+    let shield = pictures
+        .source()
+        .assemble_paths(
+            "GD_Shields.A_Item.Shield_Standard",
+            &[
+                Some("GD_Shields.Body.Body6_Torgue"),
+                Some("GD_Shields.Battery.Battery4_Dahl"),
+                Some("GD_Shields.Capacitor.Capacitor5_Anshin"),
+                Some("GD_Shields.Accessory.Accessory0_None"),
+                None,
+                None,
+                None,
+                None,
+                Some("GD_Shields.Material.Material4_VeryRare_NoSpecial"),
+            ],
+        )
+        .unwrap();
+    assert_eq!(shield.material.as_deref(), Some("Item_Shields.Materials.Mati_ShieldTedioreEpic"));
+    let class_mod = pictures.source().assemble_paths("GD_ClassMods.A_Item_Siren.ClassMod_Siren_Banshee", &[None; 9]).unwrap();
+    for (what, assembly) in [("shield", &shield), ("class mod", &class_mod)] {
+        let image = pictures.assembly_image(assembly, 400, 200).unwrap();
+        assert_eq!(pictures.skin_problem(), None, "{what}");
+        let white = near_white_share(&image.rgba);
+        assert!(white < 0.35, "{what}: {:.0}% near white", white * 100.0);
+    }
+    // Read with the gun layout, the class mod came out grey (saturation 0.06); in its own
+    // colours about 0.25.
+    let image = pictures.assembly_image(&class_mod, 400, 200).unwrap();
+    assert!(saturation(&image.rgba) > 0.15, "class mod saturation {:.2}", saturation(&image.rgba));
+
+    // A relic has no skin part; it glows in the colour its body part sets, so the picture's
+    // weakest colour channel is the glow's.
+    let relic = Pictures::decode(RELIC).unwrap();
+    let assembly = pictures.source().assemble(&relic).unwrap();
+    let glow = assembly.glow.expect("the relic's body sets a glow");
+    assert!(assembly.material.is_none());
+    let image = pictures.weapon_image(&relic, 400, 200).unwrap();
+    assert_eq!(pictures.skin_problem(), None);
+    let mean = mean_colour(&image.rgba);
+    let weakest = |c: [f32; 3]| (0..3).min_by(|&a, &b| c[a].total_cmp(&c[b])).unwrap();
+    assert_eq!(weakest(mean), weakest(glow), "glow {glow:?}, picture {mean:?}");
+    // Plain colouring still means plain.
+    pictures.set_style(Style { colouring: Colouring::Plain, ..Style::default() });
+    assert_ne!(pictures.weapon_image(&relic, 400, 200).unwrap(), image);
+}
+
+/// With the DLC installed, its items draw: Gaige's and Krieg's class mods among them, each
+/// seen face on.
+#[test]
+fn dlc_items_draw_when_installed() {
+    let Some(mut pictures) = pictures() else { return };
+    assert!(pictures.source().problems().is_empty(), "{:?}", pictures.source().problems());
+    for class_mod in ["GD_Tulip_ClassMods.A_Item_Mechromancer.ClassMod_Mechromancer_Anarchist", "GD_Lilac_ClassMods.A_Item_Lilac.ClassMod_Psycho_Blister"] {
+        let Ok(assembly) = pictures.source().assemble_paths(class_mod, &[None; 9]) else {
+            eprintln!("skipped: {class_mod} is not installed");
+            continue;
+        };
+        let image = pictures.assembly_image(&assembly, 400, 200).unwrap();
+        assert_eq!(pictures.skin_problem(), None, "{class_mod}");
+        // Edge-on, Krieg's covered about 2% of the picture.
+        let covered = opaque_share(&image.rgba);
+        assert!(covered > 0.15, "{class_mod}: {:.0}% covered", covered * 100.0);
+    }
+}
+
+/// Mean saturation (HSV) of the drawn pixels: 0 for greys.
+fn saturation(rgba: &[u8]) -> f32 {
+    let drawn: Vec<&[u8; 4]> = rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).collect();
+    let of = |p: &&[u8; 4]| {
+        let (max, min) = (f32::from(*p[..3].iter().max().unwrap_or(&0)), f32::from(*p[..3].iter().min().unwrap_or(&0)));
+        if max > 0.0 { (max - min) / max } else { 0.0 }
+    };
+    drawn.iter().map(of).sum::<f32>() / drawn.len().max(1) as f32
 }

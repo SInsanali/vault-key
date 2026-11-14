@@ -23,9 +23,10 @@ const NOT_GEAR = ["mission", "customization", "usable"];
 
 const WHERE = { backpack: "Backpack", equipped: "Equipped", bank: "Bank" };
 
-// Pictures of weapons, shields, grenade mods and relics. The app draws them from the game's own files and serves them at
-// `/picture/<size>/<item code>`, at twice the size shown here. The token keeps the web view
-// from showing a picture kept from an earlier run of the app.
+// Pictures of weapons, shields, grenade mods, relics and class mods, the DLC's included. The
+// app draws them from the game's own files and serves them at `/picture/<size>/<item code>`,
+// at twice the size shown here. The token keeps the web view from showing a picture kept from
+// an earlier run of the app.
 const PICTURE_SHOWN = { thumb: [144, 72], detail: [264, 132] };
 const PICTURE_RUN = Date.now().toString(36);
 
