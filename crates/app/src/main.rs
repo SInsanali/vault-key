@@ -17,7 +17,7 @@ mod platform;
 
 use std::borrow::Cow;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -26,16 +26,26 @@ use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::window::{Icon, WindowBuilder};
 use wry::http::{Request, Response, StatusCode};
-use wry::{RequestAsyncResponder, WebContext, WebViewBuilder};
+use wry::{NewWindowResponse, RequestAsyncResponder, WebContext, WebViewBuilder};
 
 /// Set (to anything) to make the app run its self-test and close. See [`selftest_sandbox`].
 const SELFTEST_ENV: &str = "GK_SELFTEST";
-/// For development: an item reference such as `54:0`. The window then opens the first
-/// character with that item selected on the Gear tab (used to capture the window).
+/// For development (debug builds only): an item reference such as `54:0`. The window then
+/// opens the first character with that item selected on the Gear tab (used to capture the
+/// window).
 const SELECT_ENV: &str = "GK_UI_SELECT";
-/// For development: the full path of a save file to open at start, as "Open a save file…"
-/// would (used to capture the window with a file from outside the save folder open).
+/// For development (debug builds only): the full path of a save file to open at start, as
+/// "Open a save file…" would (used to capture the window with a file from outside the save
+/// folder open).
 const OPEN_ENV: &str = "GK_UI_OPEN";
+/// The only addresses the window may show: the app's own pages. WebView2 serves the `gk`
+/// scheme as `http://gk.localhost/`; the other spelling is what the app asks for.
+const APP_ORIGINS: [&str; 2] = ["http://gk.localhost", "gk://localhost"];
+/// What the app's pages may load and run: their own files only. Styles may be inline
+/// (the page sets custom properties on elements); nothing may be framed or posted away.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+     img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; \
+     frame-ancestors 'none'";
 /// How long the web view may keep a picture. The page puts a per-run token in the address,
 /// so nothing kept here outlives the run that drew it.
 const PICTURE_CACHE_CONTROL: &str = "private, max-age=86400";
@@ -78,6 +88,8 @@ fn respond_cached(status: StatusCode, content_type: &str, cache: &str, body: Cow
         .status(status)
         .header("Content-Type", content_type)
         .header("Cache-Control", cache)
+        .header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        .header("X-Content-Type-Options", "nosniff")
         .body(body)
         .expect("valid response")
 }
@@ -272,7 +284,10 @@ fn main() {
     let theme = gkcore::Settings::load(&data_dir.join(gkcore::settings::SETTINGS_FILE_NAME))
         .map(|s| s.theme().to_string())
         .unwrap_or_default();
-    let live_ui: Option<PathBuf> = std::env::var_os(assets::UI_DIR_ENV).map(PathBuf::from);
+    // Serving the page from a folder is for development; the shipped app only shows the
+    // copy built into it.
+    let live_ui: Option<PathBuf> =
+        if cfg!(debug_assertions) { std::env::var_os(assets::UI_DIR_ENV).map(PathBuf::from) } else { None };
 
     // The worker owns the app state and answers API calls in order.
     let (calls, inbox) = mpsc::channel::<ApiCall>();
@@ -317,16 +332,32 @@ fn main() {
         .build(&event_loop)
         .unwrap_or_else(|error| fail_to_start("Vault Key could not open its window", &error, "Restarting Windows may help."));
 
-    let text_env = |key: &str| env(key).and_then(|v| v.into_string().ok());
-    let start_url = start_url(selftest, text_env(SELECT_ENV).as_deref(), text_env(OPEN_ENV).as_deref());
+    let text_env = |key: &str| env(key).and_then(|v| v.into_string().ok()).filter(|_| cfg!(debug_assertions));
+    let open_at_start = text_env(OPEN_ENV);
+    if let Some(path) = &open_at_start {
+        dialogs::remember(dialogs::Purpose::Open, Path::new(path));
+    }
+    let start_url = start_url(selftest, text_env(SELECT_ENV).as_deref(), open_at_start.as_deref());
     let owner = dialogs::Owner::of(&window);
     let mut web_context = WebContext::new(Some(data_dir.join("WebView")));
     let webview = WebViewBuilder::new_with_web_context(&mut web_context)
         .with_background_color(window_background(&theme))
         .with_devtools(cfg!(debug_assertions))
+        // The window shows the app and nothing else: no following links or redirects away,
+        // no new windows, no downloads, and a file dropped on it is not opened as a page.
+        .with_navigation_handler(|url| is_app_address(&url))
+        .with_new_window_req_handler(|_, _| NewWindowResponse::Deny)
+        .with_download_started_handler(|_, _| false)
+        .with_drag_drop_handler(|_| true)
         .with_asynchronous_custom_protocol("gk".into(), move |_id, request: Request<Vec<u8>>, responder| {
             let path = request.uri().path().trim_start_matches('/').to_string();
             if let Some(command) = path.strip_prefix("api/") {
+                // Commands come only from the app's own page, as POSTs (a preflight or a
+                // page from elsewhere gets nothing done).
+                if !is_app_call(&request) {
+                    responder.respond(respond(StatusCode::FORBIDDEN, "text/plain; charset=utf-8", Cow::Borrowed(b"forbidden")));
+                    return;
+                }
                 // The Open and Save dialogs run on threads of their own, so that neither the
                 // window nor the API worker waits while the user picks a file.
                 let args: serde_json::Value = serde_json::from_slice(request.body()).unwrap_or(serde_json::Value::Null);
@@ -430,6 +461,25 @@ fn start_url(selftest: bool, select: Option<&str>, open: Option<&str>) -> String
     }
 }
 
+/// Whether `url` is one of the app's own pages.
+fn is_app_address(url: &str) -> bool {
+    APP_ORIGINS.iter().any(|origin| url.strip_prefix(origin).is_some_and(|rest| rest.is_empty() || rest.starts_with('/')))
+}
+
+/// Whether an API request comes from the app's own page: a POST whose `Origin` (or, if a
+/// request has none, `Referer`) is the app's.
+fn is_app_call(request: &Request<Vec<u8>>) -> bool {
+    if request.method() != wry::http::Method::POST {
+        return false;
+    }
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
+    match (header("Origin"), header("Referer")) {
+        (Some(origin), _) => APP_ORIGINS.contains(&origin),
+        (None, Some(referer)) => is_app_address(referer),
+        (None, None) => false,
+    }
+}
+
 fn path_or_index(path: &str) -> String {
     if path.is_empty() { "index.html".to_string() } else { path.to_string() }
 }
@@ -461,6 +511,34 @@ mod tests {
         let png = picture_response(pictures::Answer { status: 200, content_type: "image/png", body: vec![1, 2, 3] });
         assert_eq!((png.status(), png.headers()["Content-Type"].to_str().unwrap()), (StatusCode::OK, "image/png"));
         assert_eq!(png.headers()["Cache-Control"].to_str().unwrap(), PICTURE_CACHE_CONTROL);
+    }
+
+    #[test]
+    fn the_window_stays_on_the_app_and_takes_commands_only_from_it() {
+        for url in ["gk://localhost/index.html", "http://gk.localhost/index.html?selftest", "http://gk.localhost"] {
+            assert!(is_app_address(url), "{url}");
+        }
+        for url in ["file:///C:/Users/x/Downloads/page.html", "https://example.com/", "http://gk.localhost.example.com/", "about:blank"] {
+            assert!(!is_app_address(url), "{url}");
+        }
+        let call = |method: &str, headers: &[(&str, &str)]| {
+            let mut request = Request::builder().method(method).uri("http://gk.localhost/api/save");
+            for (name, value) in headers {
+                request = request.header(*name, *value);
+            }
+            is_app_call(&request.body(Vec::new()).unwrap())
+        };
+        assert!(call("POST", &[("Origin", "http://gk.localhost")]));
+        assert!(call("POST", &[("Referer", "http://gk.localhost/index.html")]));
+        assert!(!call("POST", &[("Origin", "null")]));
+        assert!(!call("POST", &[("Origin", "null"), ("Referer", "http://gk.localhost/index.html")]));
+        assert!(!call("POST", &[("Origin", "https://example.com")]));
+        assert!(!call("POST", &[]));
+        assert!(!call("OPTIONS", &[("Origin", "http://gk.localhost")]));
+        assert!(!call("GET", &[("Origin", "http://gk.localhost")]));
+        // Every response says what the page may load.
+        let page = respond(StatusCode::OK, "text/html", Cow::Borrowed(b""));
+        assert!(page.headers()["Content-Security-Policy"].to_str().unwrap().starts_with("default-src 'self'"));
     }
 
     #[test]

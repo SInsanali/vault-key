@@ -23,6 +23,8 @@ use gkcore::{
 };
 use serde_json::{json, Value};
 
+use crate::dialogs;
+
 /// What a command asks the window to do after answering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
@@ -59,6 +61,9 @@ pub struct Api {
     notices: Vec<String>,
     /// `Some` only in self-test mode: the folder the self-test log is written in.
     selftest_dir: Option<PathBuf>,
+    /// Whether `open_file` and `export_file` take only paths the user chose in a dialog.
+    /// On in the running app; off in tests and the self-test, which name their own files.
+    chosen_paths_only: bool,
 }
 
 type CommandResult = Result<Value, String>;
@@ -461,6 +466,7 @@ impl Api {
             Box::new(CoreConfig::live)
         };
         let mut api = Api::with_config(config);
+        api.chosen_paths_only = selftest_dir.is_none();
         api.selftest_dir = selftest_dir;
         let (sender, result) = mpsc::channel();
         let percent = Arc::new(AtomicU32::new(0));
@@ -494,7 +500,18 @@ impl Api {
             game: None,
             notices: Vec::new(),
             selftest_dir: None,
+            chosen_paths_only: false,
         }
+    }
+
+    /// `path`, if the page may use it for `purpose`: in the running app, only a path the
+    /// user chose in the Open or Save dialog.
+    fn chosen_path(&self, args: &Value, purpose: dialogs::Purpose) -> Result<PathBuf, String> {
+        let path = PathBuf::from(text_arg(args, "path")?);
+        if self.chosen_paths_only && !dialogs::was_chosen(purpose, &path) {
+            return Err("Choose the file in the dialog first.".to_string());
+        }
+        Ok(path)
     }
 
     /// Run one command. `Err` is a message for the user.
@@ -816,13 +833,13 @@ impl Api {
                 self.character()
             }
             "open_file" => {
-                let path = PathBuf::from(text_arg(args, "path")?);
+                let path = self.chosen_path(args, dialogs::Purpose::Open)?;
                 let session = self.core()?.open_file(&path).map_err(message)?;
                 self.session = Some(session);
                 self.character()
             }
             "export_file" => {
-                let path = PathBuf::from(text_arg(args, "path")?);
+                let path = self.chosen_path(args, dialogs::Purpose::Export)?;
                 let (core, session) = self.open_parts()?;
                 let report = core.export(session, &path).map_err(message)?;
                 Ok(json!({ "report": export_json(&report) }))

@@ -91,6 +91,23 @@ export async function run({ state, actions }) {
       return `${resources.length} files, ${fonts} of them fonts, all from ${location.origin}; secure context: ${window.isSecureContext}`;
     });
 
+    await step("the window takes commands only from its own page, and runs only its own code", async () => {
+      // A GET (what a link or an <img> from elsewhere would send) does nothing.
+      const get = await fetch("/api/ping");
+      same(get.status, 403, "status of a GET to the API");
+      // The page's content-security policy forbids running strings as code.
+      let ran = true;
+      try {
+        new Function("return 1")();
+      } catch {
+        ran = false;
+      }
+      check(!ran, "a string was run as code");
+      const policy = (await fetch("index.html")).headers.get("Content-Security-Policy") ?? "";
+      check(policy.includes("default-src 'self'"), `content-security policy: "${policy}"`);
+      return `GET refused (403); ${policy.split(";")[0]}`;
+    });
+
     await step("item names load from the game", async () => {
       const started = Date.now();
       let now = await call("status");

@@ -5,16 +5,45 @@
 //! `pick_open_file` / `pick_export_file` and gets the chosen path, or `null` when the user
 //! cancels. Choosing a path does nothing by itself: the page then calls `open_file` or
 //! `export_file`, which apply all of the core's rules.
+//!
+//! The paths a dialog returns are also remembered here, and the app only opens or exports
+//! to a path the user chose in a dialog (see [`was_chosen`]). The page cannot name a file
+//! of its own, so a page that is not Vault Key's could not read or overwrite anything.
 
 use std::ffi::OsString;
 use std::num::NonZeroIsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
 use serde_json::Value;
+
+/// What a chosen path may be used for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    Open,
+    Export,
+}
+
+/// Every path the user chose in a dialog during this run, with what for.
+static CHOSEN: Mutex<Vec<(Purpose, PathBuf)>> = Mutex::new(Vec::new());
+
+/// Remembers that the user chose `path` for `purpose` (a dialog, or the file the app was
+/// started with).
+pub fn remember(purpose: Purpose, path: &Path) {
+    let mut chosen = CHOSEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !chosen.iter().any(|(p, known)| *p == purpose && known == path) {
+        chosen.push((purpose, path.to_path_buf()));
+    }
+}
+
+/// Whether the user chose `path` for `purpose` in a dialog during this run.
+pub fn was_chosen(purpose: Purpose, path: &Path) -> bool {
+    CHOSEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).iter().any(|(p, known)| *p == purpose && known == path)
+}
 
 /// What the page asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +128,10 @@ pub fn show(owner: Owner, request: Request, answer: impl FnOnce(Result<Option<Pa
     }
     std::thread::spawn(move || {
         let env = |key: &str| std::env::var_os(key);
+        let purpose = match request {
+            Request::Open => Purpose::Open,
+            Request::Export { .. } => Purpose::Export,
+        };
         let chosen = match request {
             Request::Open => {
                 let mut dialog = rfd::FileDialog::new()
@@ -123,6 +156,9 @@ pub fn show(owner: Owner, request: Request, answer: impl FnOnce(Result<Option<Pa
                 dialog.save_file()
             }
         };
+        if let Some(path) = &chosen {
+            remember(purpose, path);
+        }
         OPEN.store(false, Ordering::SeqCst);
         answer(Ok(chosen));
     });
@@ -132,6 +168,16 @@ pub fn show(owner: Owner, request: Request, answer: impl FnOnce(Result<Option<Pa
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn only_chosen_paths_are_known_and_for_what_they_were_chosen() {
+        let path = Path::new(r"C:\Somewhere\chosen-for-test.sav");
+        assert!(!was_chosen(Purpose::Open, path));
+        remember(Purpose::Open, path);
+        assert!(was_chosen(Purpose::Open, path));
+        assert!(!was_chosen(Purpose::Export, path));
+        assert!(!was_chosen(Purpose::Open, Path::new(r"C:\Somewhere\other.sav")));
+    }
 
     #[test]
     fn requests_from_the_page() {

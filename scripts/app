@@ -9,7 +9,7 @@
 #   GK_SAVEDATA_DIR   use this SaveData folder instead of the game's real one
 #   GK_DATA_DIR       keep Vault Key's settings and backups here (pair it with the above)
 #   GK_GAME_DATA      the game's install folder, if it is not in a default Steam library
-#   GK_UI_DIR         serve the UI live from this folder (the repo's ui/) instead of the built-in copy
+#   GK_UI_DIR         serve the UI live from this folder (the repo's ui/) instead of the built-in copy; debug builds only
 #   GK_SELFTEST       run the self-test and quit (needs both sandbox folders; see scripts/app-selftest)
 #
 # With none of them set, the app works on the real save folder: that is what it is for.
