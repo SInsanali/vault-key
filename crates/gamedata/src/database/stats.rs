@@ -38,6 +38,11 @@ use super::{AssetCategory, DlcResolution, ItemDatabase, ItemRefs, ObjectInfo, Rg
 
 /// How deep attribute and formula references may nest before evaluation gives up.
 const MAX_DEPTH: usize = 24;
+/// Most evaluation steps (attribute and value lookups) one card may take. Nesting alone does
+/// not bound the work: a definition that refers to the same thing several times at every level
+/// multiplies it, fourfold a level for a formula. The most any card of the game takes is 90;
+/// this many take a few milliseconds.
+const MAX_STEPS: usize = 100_000;
 /// Relative distance from a rounding boundary within which a displayed value is reported as
 /// approximate: the game's own 32-bit float arithmetic may land on the other side. Four units
 /// in the last place of a 32-bit float, which covers a few operations done in another order.
@@ -387,6 +392,8 @@ struct Card<'a> {
     /// Set when a definition of the item could not be read: every value is then unknown.
     poison: Option<String>,
     depth: Cell<usize>,
+    /// Evaluation steps taken so far for this card (see [`MAX_STEPS`]).
+    steps: Cell<usize>,
 }
 
 /// A bonus line's number, before presentation.
@@ -403,10 +410,18 @@ fn short(path: &str) -> &str {
 }
 
 impl<'a> Card<'a> {
+    /// Runs one evaluation step: within [`MAX_DEPTH`] nested steps and [`MAX_STEPS`] steps for
+    /// the whole card. Once the card is out of steps, every further value is unknown at once.
     fn guarded<T>(&self, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
         if self.depth.get() >= MAX_DEPTH {
             return Err("the definitions refer to each other too deeply".into());
         }
+        if self.steps.get() >= MAX_STEPS {
+            return Err(format!(
+                "the definitions take more than {MAX_STEPS} steps to evaluate"
+            ));
+        }
+        self.steps.set(self.steps.get() + 1);
         self.depth.set(self.depth.get() + 1);
         let out = f();
         self.depth.set(self.depth.get() - 1);
@@ -1434,6 +1449,7 @@ impl ItemDatabase {
             fun_slots: Vec::new(),
             poison: None,
             depth: Cell::new(0),
+            steps: Cell::new(0),
         };
         if class_name == "GrenadeModDefinition" {
             for property in GRENADE_MOD_PROPERTIES {
@@ -2564,6 +2580,7 @@ mod tests {
             fun_slots: Vec::new(),
             poison: None,
             depth: Cell::new(0),
+            steps: Cell::new(0),
         };
         let number = |presentation: &Presentation, value: f32| {
             card.modifier_number(
@@ -2706,6 +2723,7 @@ mod tests {
             fun_slots: Vec::new(),
             poison: None,
             depth: Cell::new(0),
+            steps: Cell::new(0),
         };
         let Some(PresentationRule::Plain(accuracy)) =
             db.stat_data.presentation(PresentationList::Weapon, SPREAD)
@@ -2748,6 +2766,66 @@ mod tests {
                 .presentation(PresentationList::Shield, "A.Nowhere"),
             None
         );
+    }
+
+    #[test]
+    fn evaluation_work_is_bounded() {
+        // Every level's formula refers to the next level four times: within the depth limit,
+        // but 4^16 lookups (about a minute) if nothing bounded the work.
+        let mut db = synthetic();
+        let next = |level: usize| ValueData {
+            initialization: Some(format!("F.{level}")),
+            ..constant(1.0)
+        };
+        let formula_of = |level: usize| Initialization {
+            mode: BaseValueMode::Sets,
+            rounding: Rounding::Float,
+            formula: Some(Formula {
+                multiplier: next(level),
+                level: next(level),
+                power: next(level),
+                offset: next(level),
+            }),
+            conditional: None,
+            minimum: None,
+            maximum: None,
+            unsupported: None,
+        };
+        let s = &mut db.stat_data;
+        for level in 0..16 {
+            s.initializations
+                .insert(format!("F.{level}"), formula_of(level + 1));
+        }
+        s.initializations.insert(
+            "F.16".into(),
+            Initialization {
+                formula: Some(Formula {
+                    multiplier: constant(1.0),
+                    level: constant(1.0),
+                    power: constant(1.0),
+                    offset: constant(0.0),
+                }),
+                ..formula_of(0)
+            },
+        );
+        s.initializations.insert("Init.Damage".into(), formula_of(0));
+
+        let stats = db.stats(&weapon(&[], VLADOF), ItemLevel::new(1));
+        let rows = texts(&stats);
+        assert_eq!(
+            rows[0],
+            format!("?the definitions take more than {MAX_STEPS} steps to evaluate")
+        );
+        // The card fails as a whole, quickly: the other rows are unknown for the same reason.
+        assert!(
+            rows.iter().all(|row| row.contains("steps")),
+            "{rows:?}"
+        );
+
+        // A card of sound definitions is untouched.
+        let db = synthetic();
+        let rows = texts(&db.stats(&weapon(&[], VLADOF), ItemLevel::new(1)));
+        assert!(rows.iter().all(|row| !row.starts_with('?')), "{rows:?}");
     }
 
     #[test]
@@ -2829,6 +2907,7 @@ mod tests {
             fun_slots: Vec::new(),
             poison: None,
             depth: Cell::new(0),
+            steps: Cell::new(0),
         };
         let value = |path: &str, base: f32, scale: f32| {
             card.value(&ValueData {
