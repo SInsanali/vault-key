@@ -520,7 +520,7 @@ fn edit_error(error: SaveKitError) -> CoreError {
         SaveKitError::InvalidValue { field, reason } => {
             let message = match field.as_str() {
                 "name" if reason.contains("empty") => "Name can't be empty.".to_string(),
-                "name" => "Name can only use Latin letters (no emoji).".to_string(),
+                "name" => "Name can only use English letters, digits, spaces and punctuation.".to_string(),
                 "level" => format!("Level must be between {MIN_LEVEL} and {MAX_LEVEL}."),
                 "currency" => format!("Must be between 0 and {}.", format::number(MAX_CURRENCY)),
                 "backpackSlots" => format!("Backpack must be {MIN_BACKPACK_SLOTS}–{MAX_BACKPACK_SLOTS} slots."),
@@ -932,7 +932,7 @@ mod tests {
             (Edit::Currency(Currency::Money, -1), "Must be between 0 and 2,147,483,647."),
             (Edit::Currency(Currency::Torgue, 2_147_483_648), "Must be between 0 and 2,147,483,647."),
             (Edit::Name(String::new()), "Name can't be empty."),
-            (Edit::Name("Zer0🔥".to_string()), "Name can only use Latin letters (no emoji)."),
+            (Edit::Name("Zer0🔥".to_string()), "Name can only use English letters, digits, spaces and punctuation."),
             (Edit::Name("two\nlines".to_string()), "Name can't contain line breaks or control characters."),
             (Edit::BackpackSlots(11), "Backpack must be 12–39 slots."),
             (Edit::BackpackSlots(40), "Backpack must be 12–39 slots."),
