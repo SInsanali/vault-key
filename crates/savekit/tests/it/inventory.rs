@@ -361,6 +361,14 @@ fn op_level_updates_the_existing_record() {
 }
 
 #[test]
+fn op_level_zero_adds_no_record_to_a_save_without_one() {
+    let mut doc = SaveDocument::default();
+    let before = doc.clone();
+    doc.set_op_level(0).unwrap();
+    assert_eq!(doc, before);
+}
+
+#[test]
 fn op_level_creates_the_record_when_missing() {
     let mut doc = SaveDocument::default();
     assert_eq!(doc.op_level(), 0);

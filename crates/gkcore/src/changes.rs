@@ -380,6 +380,13 @@ fn apply(out: &mut Replay, change: &PendingChange, classifier: &dyn GearClassifi
         Edit::UnlockAmmo => doc.unlock_ammo().map_err(edit_error)?,
         Edit::MaximizeAmmo => doc.maximize_ammo().map_err(edit_error)?,
         Edit::ItemLevels { level, force } => {
+            // The same range the page offers (the engine alone would take up to 127).
+            if !(0..=MAX_GEAR_LEVEL).contains(level) {
+                return fail(
+                    ErrorKind::InvalidValue,
+                    format!("Item level must be between 1 and {MAX_GEAR_LEVEL} (or 0 for the character's level)."),
+                );
+            }
             let target = if *level > 0 { *level } else { doc.level() };
             let affected: Vec<EntryRef> = doc
                 .inventory()
@@ -941,7 +948,12 @@ mod tests {
             (Edit::OpLevel(11), "Overpower level must be 0–10."),
             (
                 Edit::ItemLevels { level: 128, force: false },
-                "Item level must be between 0 and 127 (0 means the character's level).",
+                "Item level must be between 1 and 90 (or 0 for the character's level).",
+            ),
+            // The page offers up to level 80 and Overpower 10; the API takes no more.
+            (
+                Edit::ItemLevels { level: 91, force: false },
+                "Item level must be between 1 and 90 (or 0 for the character's level).",
             ),
             (Edit::ImportCodes { codes: vec![], to_bank: false }, "There are no item codes to import."),
             (
