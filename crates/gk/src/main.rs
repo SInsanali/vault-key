@@ -3,6 +3,8 @@
 //! Every command that writes produces a new file and never touches its input. The only way
 //! into the game's save folder is `install`, which only fills a free slot.
 
+#![forbid(unsafe_code)]
+
 mod commands;
 
 use std::path::Path;
