@@ -200,7 +200,7 @@ pub fn scan(root: &Path, settings: &Settings) -> Result<Vec<CharacterEntry>> {
 fn describe(path: &Path, slot_id: SlotId, settings: &Settings, steam_cloud: bool) -> CharacterEntry {
     let meta = fs::metadata(path).ok();
     let modified_unix = meta.as_ref().and_then(|m| m.modified().ok()).map(time::unix_seconds);
-    let decoded = match fs::read(path) {
+    let decoded = match guards::read_save_file(path) {
         Ok(bytes) => SaveDocument::from_file_bytes(&bytes).map_err(|e| unreadable_reason(&e)),
         Err(e) => Err(format!("The file cannot be read: {e}")),
     };

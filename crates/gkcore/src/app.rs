@@ -26,8 +26,9 @@ pub const APP_FOLDER_NAME: &str = "VaultKey";
 /// The data folder's name before the app was renamed (it was called Golden Key until 0.9.0).
 /// The app copies settings and backups from it once; see the app's `migrate_old_data`.
 pub const OLD_APP_FOLDER_NAME: &str = "GoldenKey";
-/// Largest save file Vault Key opens from outside the save folder. Real saves are under
-/// 100 KB; this only stops a wrong pick (a video, say) from being read into memory.
+/// Largest file Vault Key reads as a save: one picked to open, files in the save folder,
+/// an export's target and backups. Real saves are under 100 KB; this only stops a wrong
+/// file (a video, say) from being read into memory.
 pub const MAX_SAVE_FILE_BYTES: u64 = 4 << 20;
 /// Folder under the backups folder where a file that an export replaced is kept.
 const EXPORT_BACKUPS_FOLDER: &str = "exports";
@@ -318,7 +319,7 @@ impl Core {
 
     fn document_on_disk(&self, slot_id: &SlotId) -> Option<SaveDocument> {
         let (_, target) = writer::resolve_target(&self.save_data_root, slot_id).ok()?;
-        SaveDocument::from_file_bytes(&fs::read(target).ok()?).ok()
+        SaveDocument::from_file_bytes(&guards::read_save_file(&target).ok()?).ok()
     }
 
     /// Protects the character that is in this slot now: Vault Key will never write its file
@@ -374,7 +375,7 @@ impl Core {
     /// it cannot be read.
     fn character_on_disk(&self, slot_id: &SlotId) -> Option<String> {
         let (_, target) = writer::resolve_target(&self.save_data_root, slot_id).ok()?;
-        let document = SaveDocument::from_file_bytes(&fs::read(target).ok()?).ok()?;
+        let document = SaveDocument::from_file_bytes(&guards::read_save_file(&target).ok()?).ok()?;
         Some(policy::character_mark(&document))
     }
 
@@ -431,7 +432,7 @@ impl Core {
     /// place is [`Core::access`].
     pub fn open(&self, slot_id: &SlotId) -> Result<CharacterSession> {
         let (_, target) = writer::resolve_target(&self.save_data_root, slot_id)?;
-        let bytes = fs::read(&target).map_err(|e| {
+        let bytes = guards::read_save_file(&target).map_err(|e| {
             CoreError::new(ErrorKind::Unreadable, format!("{} can't be opened: {e}", slot_id.file_name()))
         })?;
         CharacterSession::from_bytes(slot_id.clone(), bytes, self.classifier.clone())
@@ -533,7 +534,7 @@ impl Core {
             return fail(ErrorKind::InvalidTarget, "The folder to export into does not exist.");
         };
         let existing = match fs::symlink_metadata(target) {
-            Ok(meta) if meta.is_file() => Some(fs::read(target).map_err(|e| {
+            Ok(meta) if meta.is_file() => Some(guards::read_save_file(target).map_err(|e| {
                 CoreError::new(ErrorKind::BackupFailed, format!("{file_name} is there already and can't be read to keep a copy ({e}), so nothing was written."))
             })?),
             Ok(_) => return fail(ErrorKind::InvalidTarget, format!("{file_name} is not a file, so nothing was written there.")),
@@ -813,7 +814,7 @@ impl Core {
         // The restored file must be the backup, bit for bit.
         let expectations = [Expectation::Unchanged];
         let checks = [Check::Equals(document.clone())];
-        let current = match fs::read(&target) {
+        let current = match guards::read_save_file(&target) {
             Ok(current) => Some(current),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => {

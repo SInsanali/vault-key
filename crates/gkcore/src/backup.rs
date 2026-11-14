@@ -231,7 +231,7 @@ impl BackupStore {
     /// The bytes of a backup, checked against the SHA-1 recorded when it was taken.
     pub fn read(&self, info: &BackupInfo) -> Result<Vec<u8>> {
         let checked = self.find(&info.id)?;
-        let bytes = fs::read(&checked.path).map_err(|e| {
+        let bytes = guards::read_save_file(Path::new(&checked.path)).map_err(|e| {
             CoreError::new(ErrorKind::BadBackup, format!("Cannot read the backup {}: {e}", checked.path))
         })?;
         if let Some(recorded) = &checked.sha1 {

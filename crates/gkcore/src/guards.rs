@@ -10,6 +10,8 @@ use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use crate::app::MAX_SAVE_FILE_BYTES;
+
 /// A refusal or failure. The message is the one-line reason shown to the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GkError(pub String);
@@ -21,6 +23,24 @@ impl fmt::Display for GkError {
 }
 
 impl std::error::Error for GkError {}
+
+/// Reads a file that should be a save (or a backup of one), refusing one larger than
+/// [`MAX_SAVE_FILE_BYTES`] before reading it.
+pub fn read_save_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let file = fs::File::open(path)?;
+    let too_big = || std::io::Error::new(std::io::ErrorKind::InvalidData, "it is far too large to be a save file");
+    if file.metadata()?.len() > MAX_SAVE_FILE_BYTES {
+        return Err(too_big());
+    }
+    // The file could grow while it is read: never take more than the limit.
+    let mut bytes = Vec::new();
+    file.take(MAX_SAVE_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_SAVE_FILE_BYTES {
+        return Err(too_big());
+    }
+    Ok(bytes)
+}
 
 pub fn refuse<T>(message: impl Into<String>) -> Result<T, GkError> {
     Err(GkError(message.into()))
@@ -222,7 +242,7 @@ pub fn is_real_save_0001(data: &[u8], real_roots: &[PathBuf]) -> bool {
     for root in real_roots {
         let Ok(entries) = fs::read_dir(root) else { continue };
         for entry in entries.flatten() {
-            if let Ok(real) = fs::read(entry.path().join("Save0001.sav")) {
+            if let Ok(real) = read_save_file(&entry.path().join("Save0001.sav")) {
                 if real == data {
                     return true;
                 }
@@ -258,7 +278,7 @@ pub fn slot_using_save_game_id(
         if !is_save_file_name(&name) {
             continue;
         }
-        let decoded = fs::read(dir.join(&name)).ok().and_then(|d| save_game_id(&d));
+        let decoded = read_save_file(&dir.join(&name)).ok().and_then(|d| save_game_id(&d));
         let Some(existing) = decoded else {
             return refuse(format!(
                 "refused: cannot read or decode {name} in the save folder, so its save-game ID is unknown; fix or move it first"
@@ -552,6 +572,17 @@ mod tests {
     fn live_process_list_works_here() {
         let names = live_process_names().unwrap();
         assert!(names.len() > 5);
+    }
+
+    #[test]
+    fn files_too_large_to_be_saves_are_not_read() {
+        let t = TempDir::new();
+        let small = t.path().join("Save0002.sav");
+        fs::write(&small, b"save").unwrap();
+        assert_eq!(read_save_file(&small).unwrap(), b"save");
+        let big = t.path().join("Save0003.sav");
+        fs::File::create(&big).unwrap().set_len(MAX_SAVE_FILE_BYTES + 1).unwrap();
+        assert_eq!(read_save_file(&big).unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
