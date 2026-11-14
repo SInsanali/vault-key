@@ -1,4 +1,5 @@
-//! The safe write path: the one function through which every write to SaveData goes.
+//! The safe write path: the one function through which every write the app makes to SaveData
+//! goes (the developer tool's `gk install` is the only other, see the crate documentation).
 //!
 //! [`safe_write`] runs these steps in order and stops at the first failure with nothing
 //! changed:
