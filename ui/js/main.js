@@ -317,8 +317,11 @@ export const actions = {
     renderAll();
   },
 
+  /**
+   * Opens a character. Choosing the one that is open reads its file again (the game may
+   * have saved since), after asking about any unsaved changes.
+   */
   async openCharacter(slotId, { force = false } = {}) {
-    if (state.character?.slotId === slotId && !force) return true;
     if (!force && (state.character?.pendingCount ?? 0) > 0) {
       state.sheet = { type: "drop", thenOpen: slotId };
       renderSheetNow();

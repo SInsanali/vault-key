@@ -864,8 +864,18 @@ impl Api {
                 self.character()
             }
             "discard_changes" => {
-                let (_, session) = self.open_parts()?;
-                session.discard_all();
+                // Starting over reads the file again, so a file that changed on disk (the
+                // game saved) is seen as it is now. If it cannot be read, the changes are
+                // still dropped, on the copy read before.
+                let (core, session) = self.open_parts()?;
+                let fresh = match session.source() {
+                    SessionSource::Slot(slot) => core.open(slot).ok(),
+                    SessionSource::External(path) => core.open_file(path).ok(),
+                };
+                match fresh {
+                    Some(fresh) => self.session = Some(fresh),
+                    None => session.discard_all(),
+                }
                 self.character()
             }
             "save" => self.save(),
