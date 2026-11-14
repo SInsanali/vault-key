@@ -94,6 +94,18 @@ pub(crate) fn sample_bytes(save_game_id: i64) -> Vec<u8> {
     sample_doc(save_game_id).to_file_bytes().unwrap()
 }
 
+/// [`sample_doc`] with its gear weapon (`54:0`) equipped in quick slot 1.
+pub(crate) fn equipped_doc(save_game_id: i64) -> SaveDocument {
+    let mut doc = sample_doc(save_game_id);
+    let weapon = doc.message.fields.iter_mut().find(|f| f.number == field::WEAPONS).unwrap();
+    let mut entry = savekit::ProtoMessage::decode(weapon.value.as_bytes().unwrap()).unwrap();
+    entry.set_single(2, ProtoValue::Varint(1));
+    weapon.value = ProtoValue::Bytes(entry.encode());
+    let equipped = doc.inventory().into_iter().find(|e| e.entry_ref == weapon_ref()).unwrap();
+    assert_eq!(equipped.location, savekit::ItemLocation::Equipped);
+    doc
+}
+
 /// The gear weapon of [`sample_doc`].
 pub(crate) fn weapon_ref() -> EntryRef {
     EntryRef::new(field::WEAPONS, 0)

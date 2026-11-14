@@ -54,11 +54,27 @@ function itemLevels(c, actions, ui) {
       ui.itemLevel = levelBox.value;
       ui.itemLevelMode = "fixed";
       fixed.checked = true;
+      showWarning();
     },
   });
   const mode = ui.itemLevelMode ?? "character";
-  const same = h("input", { type: "radio", name: "il-mode", checked: mode === "character", dataset: { fk: "il-same" }, onChange: () => (ui.itemLevelMode = "character") });
-  const fixed = h("input", { type: "radio", name: "il-mode", checked: mode === "fixed", dataset: { fk: "il-fixed" }, onChange: () => (ui.itemLevelMode = "fixed") });
+  const same = h("input", { type: "radio", name: "il-mode", checked: mode === "character", dataset: { fk: "il-same" }, onChange: () => { ui.itemLevelMode = "character"; showWarning(); } });
+  const fixed = h("input", { type: "radio", name: "il-mode", checked: mode === "fixed", dataset: { fk: "il-fixed" }, onChange: () => { ui.itemLevelMode = "fixed"; showWarning(); } });
+  // The game takes off equipped gear above the character's level, and Vault Key refuses to
+  // save that, so say so while the number is being typed rather than only at Save.
+  const warning = h("div", { class: "callout bad", role: "status", dataset: { fk: "il-above" } });
+  const showWarning = () => {
+    const level = Number(levelBox.value);
+    // At level 80, Overpower levels let the character use gear above 80.
+    const usable = c.current.level >= 80 ? c.current.level + (c.current.opLevel ?? 0) : c.current.level;
+    const above = fixed.checked && Number.isInteger(level) && level > usable;
+    warning.style.display = above ? "" : "none";
+    warning.replaceChildren(
+      icon("warn", 18, 2.6),
+      h("span", {}, `Level ${level} is above what ${c.current.name} can use (level ${usable}). The game takes off equipped gear above that, so Vault Key won't save this. Raise the character's level on Overview first.`),
+    );
+  };
+  showWarning();
   const force = h("input", { type: "checkbox", checked: Boolean(ui.itemLevelForce), dataset: { fk: "il-force" }, onChange: () => (ui.itemLevelForce = force.checked) });
   const apply = () => {
     const level = fixed.checked ? Number(levelBox.value) : 0;
@@ -74,6 +90,8 @@ function itemLevels(c, actions, ui) {
     h("p", { class: "note" }, "Sets the level of every weapon and item you carry. Items in the bank stay as they are."),
     h("label", { class: "radio" }, same, `Match the character (level ${c.current.level})`),
     h("div", { class: "inline" }, h("label", { class: "radio" }, fixed, "Set to level"), levelBox),
+    h("p", { class: "note dim" }, `Changes gear only. The character stays level ${c.current.level}.`),
+    warning,
     h("label", { class: "check" }, force, "Include level 1 items"),
     pending
       ? h(

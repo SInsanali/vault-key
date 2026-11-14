@@ -1,7 +1,7 @@
 // Puts the browser preview into a given state, for looking at one screen at a time:
 //   index.html?mock&screen=<name>
 // Screens: gear (default), overview, unlocks, backups, save, save-readonly, saved, restore,
-// save-many, drop, settings, error, full, pick, raw, external, export, exported, add, loadout. Data variants (any screen): &data=empty,
+// item-levels-above, save-many, drop, settings, error, full, pick, raw, external, export, exported, add, loadout. Data variants (any screen): &data=empty,
 // &data=nofolder, &names=loading|off, &game=running|unknown.
 
 const SLOT = (n) => `76561190000000000/Save000${n}.sav`;
@@ -28,6 +28,12 @@ export async function play({ state, actions, params }) {
       await zero();
       await actions.stage({ kind: "unlockUvhm" });
       await actions.stage({ kind: "ammoLevel", ammo: "sniper", level: 3 });
+      actions.setTab("unlocks");
+      break;
+    case "item-levels-above":
+      await zero();
+      state.ui.itemLevel = String(state.character.current.level + 1);
+      state.ui.itemLevelMode = "fixed";
       actions.setTab("unlocks");
       break;
     case "loadout":

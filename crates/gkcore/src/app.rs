@@ -527,6 +527,7 @@ impl Core {
             Err(_) => None,
         };
 
+        session.check_savable()?;
         let document = session.working().clone();
         let payload = Self::encode(&document)?;
         let (expectations, mut checks) = session.verification();
@@ -673,6 +674,7 @@ impl Core {
         let Some(slot_id) = session.slot_id().cloned() else {
             return fail(ErrorKind::ReadOnly, EXTERNAL_MESSAGE);
         };
+        session.check_savable()?;
         let payload = Self::encode(session.working())?;
         let (expectations, checks) = session.verification();
         let count = session.pending_count();
@@ -722,6 +724,7 @@ impl Core {
         if !self.steam_ids()?.iter().any(|id| id == steam_id) {
             return fail(ErrorKind::InvalidTarget, format!("There is no folder for Steam ID {steam_id} in the save folder."));
         }
+        session.check_savable()?;
         let slot_id = SlotId::for_slot(steam_id, slot)?;
         let mut document = session.working().clone();
         // Slot rules are the write path's to enforce; a slot of 0 just cannot be an ID.
@@ -1245,6 +1248,26 @@ mod tests {
         world.processes.unreadable.store(true, Ordering::SeqCst);
         assert_eq!(world.core.save_as_new(&session, 3).unwrap_err().kind, ErrorKind::GameStatusUnknown);
         assert_eq!(file_names(&world.dir), ["Save0002.sav", "Save0006.sav"]);
+    }
+
+    #[test]
+    fn equipped_gear_above_the_character_level_is_never_written() {
+        let mut world = World::new();
+        let original = crate::testutil::equipped_doc(4).to_file_bytes().unwrap();
+        fs::write(world.dir.join("Save0004.sav"), &original).unwrap();
+        let slot = world.slot("Save0004.sav");
+        world.core.mark_test_slot(&slot).unwrap();
+        let mut session = world.core.open(&slot).unwrap();
+        // Level 5 character, gear to 6: what the game unequips on load.
+        session.stage(Edit::ItemLevels { level: 6, force: true }).unwrap();
+        let error = world.core.save_in_place(&mut session).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::InvalidValue);
+        assert!(error.message.starts_with("Nothing was saved"), "{}", error.message);
+        assert_eq!(world.read("Save0004.sav"), original);
+        assert!(world.core.save_as_new(&session, 5).is_err());
+        // With the character raised too, it saves.
+        session.stage(Edit::Level(6)).unwrap();
+        world.core.save_in_place(&mut session).unwrap();
     }
 
     #[test]
