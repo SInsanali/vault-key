@@ -23,6 +23,8 @@
 //!   --bench                  timings
 //! ```
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
