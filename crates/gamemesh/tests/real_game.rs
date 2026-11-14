@@ -582,7 +582,7 @@ fn pattern_layers_of_common_skins() {
     let patterned = gamemesh::material::GunSkin::new(params, load(masks, 512), load(diffuse, 512), gamemesh::material::SkinDetail::Textured)
         .with_pattern(params, load(gamemesh::material::GunSkin::pattern_path(params).unwrap(), 256));
     let gestalt = source.gestalt(&assembly.gestalt).unwrap();
-    let (scene, _) = gamemesh::picture::weapon_scene(gestalt, &assembly);
+    let (scene, _) = gamemesh::picture::weapon_scene(gestalt, &assembly).unwrap();
     let view = gamemesh::render::View { width: 400, height: 200, ..Default::default() };
     let warmth = |image: &gamemesh::render::Image| {
         let (mut r, mut b) = (0u64, 0u64);

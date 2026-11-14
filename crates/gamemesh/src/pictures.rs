@@ -259,7 +259,7 @@ impl Pictures {
     pub fn assembly_image(&mut self, assembly: &crate::Assembly, width: u32, height: u32) -> Result<Image, PictureError> {
         let game_data = |e: MeshError| PictureError::GameData(e.to_string());
         let gestalt = self.source.gestalt(&assembly.gestalt).map_err(game_data)?;
-        let (mut scene, missing) = weapon_scene(gestalt, assembly);
+        let (mut scene, missing) = weapon_scene(gestalt, assembly).map_err(game_data)?;
         if assembly.fragments().map(|(_, name)| name).eq([crate::weapon::WHOLE_MESH]) {
             face_camera(&mut scene);
         }

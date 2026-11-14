@@ -4,7 +4,7 @@
 use gamedata::package::UPackage;
 
 use crate::error::{MeshError, Result};
-use crate::skeletal::SkeletalMesh;
+use crate::skeletal::{SkeletalMesh, MAX_TRIANGLES};
 
 /// One named piece of a gestalt mesh: a run of triangles in its index buffer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +63,9 @@ impl GestaltMesh {
             .and_then(|info| info.get("Parts"))
             .ok_or_else(|| MeshError::Missing(format!("{definition_path}: GestaltInfos[0].Parts")))?;
         let mut fragments = Vec::new();
+        // Fragments may share triangles and names, so a picture can repeat a run: their total
+        // is bounded, not just each one. In the game they add up to the mesh exactly.
+        let mut total = 0u64;
         for part in pkg.struct_array(parts)? {
             let name = part
                 .name("SkeletalMeshFragmentName")
@@ -84,6 +87,12 @@ impl GestaltMesh {
                     "{definition_path}: fragment {} ends at index {end} of {}",
                     fragment.name,
                     mesh.indices.len()
+                )));
+            }
+            total += u64::from(fragment.triangle_count);
+            if total > MAX_TRIANGLES as u64 {
+                return Err(MeshError::Unsupported(format!(
+                    "{definition_path}: fragments of more than {MAX_TRIANGLES} triangles in all"
                 )));
             }
             fragments.push(fragment);

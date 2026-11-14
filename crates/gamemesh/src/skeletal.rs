@@ -74,6 +74,12 @@ pub struct SkeletalMesh {
 
 /// Bones, sections, chunks and vertices above these counts are treated as corrupt.
 const MAX_BONES: usize = 1024;
+/// Most triangles a mesh, or a picture's scene, may have. The largest mesh of the game's
+/// startup packages has 25,227 triangles (and 28,268 vertices); a scene of this many takes
+/// about 32 MB.
+pub(crate) const MAX_TRIANGLES: usize = 1 << 18;
+/// Most vertices a mesh may have.
+pub(crate) const MAX_VERTICES: usize = 1 << 18;
 
 impl SkeletalMesh {
     /// Reads the mesh stored in export `index` of `pkg`.
@@ -145,6 +151,9 @@ impl SkeletalMesh {
             return Err(MeshError::Unsupported(format!("index size {index_size} / element size {element_size}")));
         }
         let index_count = c.count(index_size, "indices")?;
+        if index_count / 3 > MAX_TRIANGLES {
+            return Err(MeshError::Unsupported(format!("{} triangles", index_count / 3)));
+        }
         let raw = c.take(index_count * index_size)?;
         let indices: Vec<u32> = if index_size == 2 {
             raw.as_chunks::<2>().0.iter().map(|b| u32::from(u16::from_le_bytes(*b))).collect()
@@ -209,6 +218,9 @@ impl SkeletalMesh {
             return Err(MeshError::Unsupported(format!("vertex size {element_size}, expected {expected}")));
         }
         let vertex_count = c.count(expected, "vertices")?;
+        if vertex_count > MAX_VERTICES {
+            return Err(MeshError::Unsupported(format!("{vertex_count} vertices")));
+        }
         if vertex_count != vertex_total as usize {
             return Err(MeshError::Unsupported(format!("{vertex_count} vertices in the buffer, {vertex_total} declared")));
         }
