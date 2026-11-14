@@ -21,8 +21,9 @@ const UNUSED: u32 = 0x20;
 const CHUNK_TAG: u32 = 0x9E2A_83C1;
 /// Largest mip payload accepted (a 4096 × 4096 DXT5 mip is 16 MiB).
 const MAX_MIP_BYTES: usize = 64 << 20;
-/// Largest mip side accepted.
-const MAX_SIDE: u32 = 8192;
+/// Largest mip side decoded: the game's largest textures are 4096 on a side. A mip this size
+/// decodes to 64 MiB of pixels.
+const MAX_SIDE: u32 = 4096;
 /// Most mips a texture may list.
 const MAX_MIPS: usize = 32;
 /// Largest block of a texture cache chunk stream. The game's caches use 128 KiB blocks; this
@@ -549,6 +550,20 @@ mod tests {
         // An entry that runs past the end of the file is refused before it is read.
         assert!(matches!(decode(&one, one.len() + 1), Err(MeshError::Truncated(_))));
         assert!(matches!(decode(&one, MAX_MIP_BYTES), Err(MeshError::Truncated(_))));
+    }
+
+    #[test]
+    fn mips_larger_than_the_game_uses_are_not_decoded() {
+        let mut texture = texture("Cache", 0, true);
+        let folder = Folder::new("sides");
+        for (side, refused) in [(4096, false), (4097, true), (8192, true)] {
+            let mip = &mut texture.mips[0];
+            (mip.width, mip.height) = (side, 2);
+            let result = texture.decode(&texture.mips[0], &folder.0);
+            // A side within the limit gets as far as finding the data short.
+            assert_eq!(matches!(result, Err(MeshError::Unsupported(_))), refused, "{side}");
+            assert_eq!(matches!(result, Err(MeshError::Truncated(_))), !refused, "{side}");
+        }
     }
 
     #[test]
