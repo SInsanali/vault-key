@@ -575,6 +575,10 @@ impl Api {
                 self.notices.push(format!("The game's item data finished loading, and {what}."));
             }
         }
+        // Built, but not kept for next time: worth a line in the log, not a word to the user.
+        if let Some(problem) = &catalog.database().cache_problem {
+            crate::errlog::write(&format!("item data: {problem}"));
+        }
         self.item_data = ItemData::Ready(catalog);
     }
 
