@@ -1,10 +1,10 @@
 # Runs inside Windows Sandbox, started by scripts/sandbox-check. The host folder with the
 # setup program and these scripts is shared at C:\vk; results go to C:\vk\out.
 #
-# It runs the installer check twice (keeping, then deleting the app's data), then installs
-# again and takes screenshots of the app and of Settings > Apps for a person to look at.
+# It runs the installer check twice (keeping, then deleting the app's data), the upgrade
+# check when given the last release's setup, then installs again and takes screenshots of the app and of Settings > Apps for a person to look at.
 # The sandbox shuts itself down at the end, which throws everything inside it away.
-param([Parameter(Mandatory = $true)][string]$Version)
+param([Parameter(Mandatory = $true)][string]$Version, [string]$OldSetup = "")
 $ErrorActionPreference = "Continue"
 # Give the desktop a moment to finish starting.
 Start-Sleep -Seconds 10
@@ -41,6 +41,18 @@ foreach ($deleteData in @($false, $true)) {
     catch { Write-Output "ERROR $_"; $result = "FAILED" }
 }
 
+if ($OldSetup) {
+    Write-Output "== upgrade check, from $(Split-Path -Leaf $OldSetup)"
+    try { & C:\vk\upgrade-check.ps1 -OldSetup $OldSetup -NewSetup $setup -Version $Version }
+    catch { Write-Output "ERROR $_"; $result = "FAILED" }
+    # Back to a clean PC for the screenshots.
+    Get-Process vault-key -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 5
+    $uninstaller = Join-Path $env:LOCALAPPDATA "Programs\Vault Key\unins000.exe"
+    if (Test-Path $uninstaller) { Start-Process $uninstaller -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/DELETEDATA" -Wait }
+    Start-Sleep -Seconds 5
+}
+
 Write-Output "== screenshots"
 Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
 $exe = Join-Path $env:LOCALAPPDATA "Programs\Vault Key\vault-key.exe"
@@ -69,6 +81,7 @@ Start-Process "ms-settings:appsfeatures"
 Start-Sleep -Seconds 8
 Screenshot "settings-apps"
 
+Copy-Item (Join-Path $env:LOCALAPPDATA "VaultKey\vault-key.log") $out -ErrorAction SilentlyContinue
 Write-Output "SANDBOX CHECK $result"
 Stop-Transcript | Out-Null
 Set-Content (Join-Path $out "done.txt") $result

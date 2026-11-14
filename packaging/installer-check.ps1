@@ -35,6 +35,26 @@ $shortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Vault 
 $data = Join-Path $env:LOCALAPPDATA "VaultKey"
 $silent = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
 
+# An error box ("could not show its window") also has the title Vault Key, so the window
+# only counts when its page is up: WebView2's helpers run on the app's own WebView folder.
+# Only log lines after the first $logLinesBefore count, so an earlier run is not blamed.
+function LogLines { $logFile = Join-Path $data "vault-key.log"; if (Test-Path $logFile) { @(Get-Content $logFile).Count } else { 0 } }
+function CheckPageShown([string]$what, [int]$logLinesBefore = 0) {
+    $webViewDir = Join-Path $data "WebView"
+    $logFile = Join-Path $data "vault-key.log"
+    $failed = @(if (Test-Path $logFile) { Get-Content $logFile | Select-Object -Skip $logLinesBefore | Where-Object { $_ -match "could not (show|open) its window|cannot use its data folder|panic:" } })
+    # Windows Sandbox's own WebView2 Runtime cannot be loaded by apps, and Microsoft's installer
+    # will not replace it, so there the page cannot be checked. GitHub Actions checks it.
+    if ($env:USERNAME -eq "WDAGUtilityAccount" -and ($failed -match "Package dependency criteria could not be resolved")) {
+        Write-Output "SKIP $what shows its page: Windows Sandbox's WebView2 Runtime can't be loaded by apps"
+        return
+    }
+    $pages = @(Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" | Where-Object { $_.CommandLine -like "*$webViewDir*" })
+    Check "$what shows its page (WebView2 is running for it)" ($pages.Count -gt 0)
+    Check "$what logged no start-up failure" ($failed.Count -eq 0)
+    $failed | Select-Object -Last 5 | ForEach-Object { Write-Output "  log: $_" }
+}
+
 $install = Start-Process (Resolve-Path $Setup).Path -ArgumentList $silent -Wait -PassThru
 Check "the installer finishes without an error (exit code $($install.ExitCode))" ($install.ExitCode -eq 0)
 foreach ($file in @("vault-key.exe", "WebView2Loader.dll", "LICENSE.txt", "THIRD_PARTY_NOTICES.txt", "unins000.exe")) {
@@ -58,11 +78,13 @@ if ($key) {
 
 # The program starts, stays up with its own window (not an error box), and a second start
 # does not make a second copy.
+$logBefore = LogLines
 $first = Start-Process $exe -PassThru
 Start-Sleep -Seconds 10
 $first.Refresh()
 Check "the program starts and keeps running" (-not $first.HasExited)
 Check "the program shows its window, titled Vault Key (title: '$($first.MainWindowTitle)')" ($first.MainWindowHandle -ne 0 -and $first.MainWindowTitle -eq "Vault Key")
+CheckPageShown "the program" $logBefore
 $second = Start-Process $exe -PassThru
 $ended = $second.WaitForExit(15000)
 Check "a second start ends by itself (one copy at a time)" $ended

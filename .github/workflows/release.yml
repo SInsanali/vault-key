@@ -1,7 +1,7 @@
 name: Release
 
 # A tag such as v0.9.0 builds the program, the installer and the portable zip, checks the
-# installer on the runner, and publishes a GitHub Release with notes from CHANGELOG.md.
+# installer on the runner (a fresh install, and an upgrade over the last release), and publishes a GitHub Release with notes from CHANGELOG.md.
 # "Run workflow" does everything except publish: the files are kept as a workflow artifact.
 #
 # Building runs with a read-only token that is not left on disk, so nothing the build runs
@@ -129,6 +129,24 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging\installer-check.ps1 -Setup "dist\release\VaultKey-Setup-$($env:VERSION).exe" -Version $env:VERSION -DeleteData
+
+      # An update installed over the last published version keeps the user's settings and
+      # backups. (A tag's own release is not published yet, so "latest" is the one before.)
+      - name: Check an upgrade from the last release
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          $old = Join-Path $env:RUNNER_TEMP "last-release"
+          gh release download --repo $env:REPO --pattern "VaultKey-Setup-*.exe" --pattern "SHA256SUMS.txt" --dir $old
+          if ($LASTEXITCODE -ne 0) { throw "Could not download the last release's installer." }
+          $setup = Get-ChildItem $old -Filter "VaultKey-Setup-*.exe" | Select-Object -First 1
+          $line = Get-Content (Join-Path $old "SHA256SUMS.txt") | Where-Object { $_ -match ("  " + [regex]::Escape($setup.Name) + "$") }
+          $expected = if ($line) { ($line -split '\s+')[0] } else { "" }
+          if ((Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw "$($setup.Name) does not match the last release's SHA256SUMS.txt." }
+          packaging\upgrade-check.ps1 -OldSetup $setup.FullName -NewSetup "dist\release\VaultKey-Setup-$($env:VERSION).exe" -Version $env:VERSION
 
       - name: Release notes
         shell: pwsh
