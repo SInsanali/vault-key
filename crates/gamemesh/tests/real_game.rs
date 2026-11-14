@@ -408,8 +408,33 @@ fn what_cannot_be_drawn_says_why() {
     // An unknown skin does not stop the picture; it is drawn in plain colours and says so.
     let image = pictures.weapon_image(&with(|i| i.parts[8] = Some(131_071)), 64, 32).unwrap();
     assert!(opaque_share(&image.rgba) > 0.1 && pictures.skin_problem().is_some());
-    for e in [PictureError::BadCode, PictureError::NotAWeapon, PictureError::NothingToDraw, PictureError::UnknownParts, PictureError::GameData("x".into())] {
+    // A hybrid: a sniper rifle's barrel on a pistol. Every part is defined, but the pistol's
+    // model has no piece for that barrel.
+    let p = "GD_Weap_Pistol";
+    let barrel = "GD_Weap_SniperRifles.Barrel.SR_Barrel_Jakobs";
+    let parts = [Some(format!("{p}.Body.Pistol_Body_Jakobs")), Some(format!("{p}.Grip.Pistol_Grip_Jakobs")), Some(barrel.to_string())];
+    let parts: [Option<&str>; 9] = std::array::from_fn(|i| parts.get(i).and_then(Option::as_deref));
+    let hybrid = pictures.source().assemble_paths(&format!("{p}.A_Weapons.WeaponType_Jakobs_Pistol"), &parts).unwrap();
+    assert!(hybrid.unresolved_slots.is_empty(), "{:?}", hybrid.unresolved_slots);
+    let refused = pictures.assembly_image(&hybrid, 64, 32).unwrap_err();
+    assert!(matches!(&refused, PictureError::Hybrid(detail) if detail.contains("has no fragment")), "{refused:?}");
+    assert!(refused.to_string().contains("has no fragment"));
+    // A piece that no model has is a game-file problem, with its detail kept.
+    let mut broken = hybrid.clone();
+    broken.parts[2].fragments = vec!["NoSuchFragmentAnywhere".into()];
+    let refused = pictures.assembly_image(&broken, 64, 32).unwrap_err();
+    assert!(matches!(&refused, PictureError::GameData(detail) if detail.contains("NoSuchFragmentAnywhere")), "{refused:?}");
+    assert_eq!(refused.detail(), Some(format!("{} has no fragment NoSuchFragmentAnywhere", hybrid.gestalt).as_str()));
+    for e in [
+        PictureError::BadCode,
+        PictureError::NotAWeapon,
+        PictureError::NothingToDraw,
+        PictureError::UnknownParts,
+        PictureError::Hybrid("x".into()),
+        PictureError::GameData("x".into()),
+    ] {
         assert!(e.message().ends_with('.') && e.to_string().starts_with(e.message()));
+        assert_eq!(e.detail().is_some(), e.to_string() != e.message());
     }
 }
 
