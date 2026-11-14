@@ -284,7 +284,7 @@ pub fn game_is_running(process_names: &[String]) -> bool {
 /// An error when the list cannot be obtained: callers must treat that as "cannot prove the
 /// game is closed" and refuse, not as "not running".
 pub fn live_process_names() -> Result<Vec<String>, GkError> {
-    let mut command = std::process::Command::new("tasklist");
+    let mut command = std::process::Command::new(tasklist_path());
     command.args(["/FO", "CSV", "/NH"]);
     #[cfg(windows)]
     {
@@ -304,6 +304,17 @@ pub fn live_process_names() -> Result<Vec<String>, GkError> {
         return refuse("refused: the process list came back empty, so cannot tell whether the game is closed");
     }
     Ok(names)
+}
+
+/// The full path of Windows' own `tasklist.exe`. A bare `tasklist` is looked up in the
+/// program's own folder first, so a `tasklist.exe` left beside a portable copy (say, in
+/// Downloads) would run instead and decide whether saving is allowed.
+fn tasklist_path() -> std::path::PathBuf {
+    let root = std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .filter(|root| root.is_absolute())
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+    root.join("System32").join("tasklist.exe")
 }
 
 /// First CSV column of each `tasklist /FO CSV /NH` line: the image name.
@@ -537,6 +548,13 @@ mod tests {
     fn live_process_list_works_here() {
         let names = live_process_names().unwrap();
         assert!(names.len() > 5);
+    }
+
+    #[test]
+    fn tasklist_is_windows_own() {
+        let path = tasklist_path();
+        assert!(path.is_absolute() && path.ends_with("System32/tasklist.exe"), "{}", path.display());
+        assert!(path.is_file(), "{}", path.display());
     }
 
     #[test]
