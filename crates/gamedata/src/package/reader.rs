@@ -102,12 +102,18 @@ impl<'a> ByteReader<'a> {
     /// An FString: i32 length including the NUL; a negative length means UTF-16LE.
     /// Single-byte strings are read as Latin-1.
     pub(crate) fn fstring(&mut self) -> Result<String> {
+        self.fstring_at_most(MAX_FSTRING)
+    }
+
+    /// An FString of at most `max` characters (counting the NUL); a longer one is refused
+    /// before anything is read or allocated.
+    pub(crate) fn fstring_at_most(&mut self, max: usize) -> Result<String> {
         let len = self.i32()?;
         if len == 0 {
             return Ok(String::new());
         }
         let n = len.unsigned_abs() as usize;
-        if n > MAX_FSTRING {
+        if n > max {
             return Err(GameDataError::UnexpectedData(format!(
                 "FString length {len}"
             )));
@@ -196,6 +202,17 @@ mod tests {
             Err(GameDataError::UnexpectedData(_))
         ));
         assert!(ByteReader::new(&[0, 0, 0, 0x80]).fstring().is_err());
+        // A tighter limit, in characters either way.
+        let mut a = vec![5u8, 0, 0, 0];
+        a.extend_from_slice(b"Dahl\0");
+        assert_eq!(ByteReader::new(&a).fstring_at_most(5).unwrap(), "Dahl");
+        assert!(matches!(
+            ByteReader::new(&a).fstring_at_most(4),
+            Err(GameDataError::UnexpectedData(_))
+        ));
+        assert!(ByteReader::new(&[0xFB, 0xFF, 0xFF, 0xFF])
+            .fstring_at_most(4)
+            .is_err());
         // An offset past the end fails instead of panicking.
         let mut past = ByteReader::with_range(&[1, 2, 3], 9, 3);
         assert!(past.u8().is_err());

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use super::file::{self, PACKAGE_TAG};
 use super::reader::ByteReader;
@@ -11,13 +12,22 @@ pub const SUPPORTED_LICENSEE: u16 = 46;
 
 /// Longest outer chain followed before a reference is called bad (guards against cycles).
 const MAX_OUTER_DEPTH: usize = 64;
+/// Longest name-table entry accepted, in characters with its NUL: the engine's own limit
+/// (`NAME_SIZE`). The longest in the game's startup packages is 172.
+pub const MAX_NAME_LENGTH: usize = 1024;
+/// Longest object path built, in bytes. The longest in the game's startup packages is 219; a
+/// longer one is a bad reference. Paths are built for every export when a package is opened,
+/// so this bounds that memory to a small multiple of the export table's size.
+pub const MAX_PATH_LENGTH: usize = 2048;
 
+/// Names in the import and export tables share the name table's text: an unnumbered name is
+/// not copied per reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportEntry {
-    pub class_package: String,
-    pub class_name: String,
+    pub class_package: Arc<str>,
+    pub class_name: Arc<str>,
     pub outer: i32,
-    pub object_name: String,
+    pub object_name: Arc<str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,7 +35,7 @@ pub struct ExportEntry {
     pub class_ref: i32,
     pub super_ref: i32,
     pub outer: i32,
-    pub object_name: String,
+    pub object_name: Arc<str>,
     pub archetype: i32,
     pub object_flags: u64,
     pub serial_size: usize,
@@ -44,13 +54,14 @@ pub struct UPackage {
     pub name: String,
     pub version: u16,
     pub licensee: u16,
-    pub names: Vec<String>,
+    /// The name table. Each entry is at most [`MAX_NAME_LENGTH`] characters.
+    pub names: Vec<Arc<str>>,
     pub imports: Vec<ImportEntry>,
     pub exports: Vec<ExportEntry>,
     pub(crate) bytes: Vec<u8>,
     path_index: HashMap<String, usize>,
-    class_index: HashMap<String, Vec<usize>>,
-    class_names: Vec<String>,
+    class_index: HashMap<Arc<str>, Vec<usize>>,
+    class_names: Vec<Arc<str>>,
 }
 
 impl UPackage {
@@ -91,7 +102,13 @@ impl UPackage {
         let mut names = Vec::with_capacity(name_count);
         let mut nr = ByteReader::with_range(&bytes, name_offset, bytes.len());
         for _ in 0..name_count {
-            names.push(nr.fstring()?);
+            let entry = nr.fstring_at_most(MAX_NAME_LENGTH).map_err(|e| match e {
+                GameDataError::UnexpectedData(_) => GameDataError::UnexpectedData(format!(
+                    "{name}: a name longer than {MAX_NAME_LENGTH} characters"
+                )),
+                other => other,
+            })?;
+            names.push(Arc::<str>::from(entry));
             nr.skip(8)?; // flags
         }
 
@@ -148,12 +165,13 @@ impl UPackage {
         // the path index; when two exports share a path the first wins.
         let mut path_index = HashMap::with_capacity(exports.len());
         let mut class_names = Vec::with_capacity(exports.len());
-        let mut class_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut class_index: HashMap<Arc<str>, Vec<usize>> = HashMap::new();
+        let (class_word, no_class): (Arc<str>, Arc<str>) = (Arc::from("Class"), Arc::from(""));
         for i in 0..exports.len() {
             if let Some(path) = export_ref(i).and_then(|r| path_of(&imports, &exports, r).ok()) {
                 path_index.entry(path).or_insert(i);
             }
-            let class = class_name(&imports, &exports, i).to_string();
+            let class = class_name(&imports, &exports, i, &class_word, &no_class).clone();
             class_index.entry(class.clone()).or_default().push(i);
             class_names.push(class);
         }
@@ -192,7 +210,7 @@ impl UPackage {
     /// The class name of export `index`: "Class" for a null class reference, "" when the
     /// index or its class reference is out of range.
     pub fn class_name_of_export(&self, index: usize) -> &str {
-        self.class_names.get(index).map_or("", String::as_str)
+        self.class_names.get(index).map_or("", |class| class)
     }
 
     /// The export with this full path, if any.
@@ -214,7 +232,7 @@ impl UPackage {
 
     /// Reads an FName against this package's name table.
     pub(crate) fn read_name(&self, r: &mut ByteReader<'_>) -> Result<String> {
-        read_name(r, &self.names, &self.name)
+        read_name(r, &self.names, &self.name).map(|name| name.to_string())
     }
 }
 
@@ -224,27 +242,36 @@ fn export_ref(index: usize) -> Option<i32> {
 }
 
 /// An FName is an i32 name index plus an i32 number; a number above 0 appends `_<number-1>`.
-fn read_name(r: &mut ByteReader<'_>, names: &[String], package: &str) -> Result<String> {
+/// An unnumbered name shares the name table's text.
+fn read_name(r: &mut ByteReader<'_>, names: &[Arc<str>], package: &str) -> Result<Arc<str>> {
     let (index, number) = (r.i32()?, r.i32()?);
     let base = usize::try_from(index)
         .ok()
         .and_then(|i| names.get(i))
         .ok_or_else(|| GameDataError::BadReference(format!("{package}: name index {index}")))?;
     Ok(if number > 0 {
-        format!("{base}_{}", number - 1)
+        Arc::from(format!("{base}_{}", number - 1))
     } else {
         base.clone()
     })
 }
 
 fn path_of(imports: &[ImportEntry], exports: &[ExportEntry], start: i32) -> Result<String> {
+    let too_long = || {
+        GameDataError::BadReference(format!("a path longer than {MAX_PATH_LENGTH} bytes"))
+    };
     let mut parts: Vec<&str> = Vec::new();
+    // The joined length so far, counting a dot after every part.
+    let mut length = 0usize;
     let mut reference = start;
     while reference != 0 {
         if parts.len() >= MAX_OUTER_DEPTH {
             return Err(GameDataError::BadReference(format!(
                 "outer chain deeper than {MAX_OUTER_DEPTH}"
             )));
+        }
+        if length > MAX_PATH_LENGTH + 1 {
+            return Err(too_long());
         }
         // `unsigned_abs` cannot overflow, unlike negating i32::MIN.
         let index = reference.unsigned_abs() as usize - 1;
@@ -253,29 +280,42 @@ fn path_of(imports: &[ImportEntry], exports: &[ExportEntry], start: i32) -> Resu
                 .get(index)
                 .ok_or_else(|| GameDataError::BadReference(format!("export {reference}")))?;
             parts.push(&e.object_name);
+            length += e.object_name.len() + 1;
             reference = e.outer;
         } else {
             let i = imports
                 .get(index)
                 .ok_or_else(|| GameDataError::BadReference(format!("import {reference}")))?;
             parts.push(&i.object_name);
+            length += i.object_name.len() + 1;
             reference = i.outer;
         }
+    }
+    if length > MAX_PATH_LENGTH + 1 {
+        return Err(too_long());
     }
     parts.reverse();
     Ok(parts.join("."))
 }
 
-fn class_name<'a>(imports: &'a [ImportEntry], exports: &'a [ExportEntry], index: usize) -> &'a str {
+/// The class name of export `index`: `class_word` ("Class") for a null class reference,
+/// `none` ("") when the reference is out of range.
+fn class_name<'a>(
+    imports: &'a [ImportEntry],
+    exports: &'a [ExportEntry],
+    index: usize,
+    class_word: &'a Arc<str>,
+    none: &'a Arc<str>,
+) -> &'a Arc<str> {
     let class = exports[index].class_ref;
     if class == 0 {
-        return "Class";
+        return class_word;
     }
     let k = class.unsigned_abs() as usize - 1;
     if class > 0 {
-        exports.get(k).map_or("", |e| e.object_name.as_str())
+        exports.get(k).map_or(none, |e| &e.object_name)
     } else {
-        imports.get(k).map_or("", |i| i.object_name.as_str())
+        imports.get(k).map_or(none, |i| &i.object_name)
     }
 }
 
@@ -336,6 +376,55 @@ mod tests {
         );
         // Objects without a path are left out of the path index, not fatal.
         assert_eq!(pkg.export_paths().count(), 0);
+    }
+
+    #[test]
+    fn names_are_bounded_and_shared() {
+        // The longest name the engine allows parses, and every unnumbered reference to it
+        // shares the name table's text.
+        let longest = "N".repeat(MAX_NAME_LENGTH - 1);
+        let mut b = Pkg::new();
+        let class = b.class(&longest);
+        b.raw_export(class, 0, &longest, vec![]);
+        b.raw_export(class, 0, &longest, vec![]);
+        let pkg = UPackage::parse("t", b.build()).unwrap();
+        assert_eq!(pkg.class_name_of_export(0), longest);
+        let shared = pkg.names.iter().find(|n| ***n == *longest).unwrap();
+        assert!(Arc::ptr_eq(&pkg.imports[0].object_name, shared));
+        assert!(pkg.exports.iter().all(|e| Arc::ptr_eq(&e.object_name, shared)));
+
+        // One character more is refused before it is read.
+        let mut b = Pkg::new();
+        b.raw_export(0, 0, &"N".repeat(MAX_NAME_LENGTH), vec![]);
+        let refused = UPackage::parse("t", b.build()).unwrap_err();
+        assert_eq!(
+            refused,
+            GameDataError::UnexpectedData(format!(
+                "t: a name longer than {MAX_NAME_LENGTH} characters"
+            ))
+        );
+    }
+
+    #[test]
+    fn overlong_paths_are_bad_references() {
+        // Three 1000-character components make a path of 3002 bytes: too long. Two make one of
+        // 2001 bytes, which is fine.
+        let part = |c: char| c.to_string().repeat(1000);
+        let mut b = Pkg::new();
+        let a = b.raw_export(0, 0, &part('a'), vec![]);
+        let ab = b.raw_export(0, a, &part('b'), vec![]);
+        b.raw_export(0, ab, &part('c'), vec![]);
+        let pkg = UPackage::parse("t", b.build()).unwrap();
+        assert_eq!(pkg.export_path(1).unwrap().len(), 2001);
+        assert_eq!(
+            pkg.export_path(2),
+            Err(GameDataError::BadReference(format!(
+                "a path longer than {MAX_PATH_LENGTH} bytes"
+            )))
+        );
+        // The export is left out of the path index, like one with a broken outer chain.
+        assert_eq!(pkg.export_paths().count(), 2);
+        assert_eq!(pkg.exports_of_class("Class"), [0, 1, 2]);
     }
 
     #[test]

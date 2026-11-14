@@ -88,7 +88,7 @@ impl SkeletalMesh {
 
     /// Parses the bytes that follow a SkeletalMesh's tagged properties. `names` is the
     /// package's name table (bone names are stored as indices into it).
-    pub fn parse(native: &[u8], names: &[String]) -> Result<Self> {
+    pub fn parse<S: AsRef<str>>(native: &[u8], names: &[S]) -> Result<Self> {
         let mut c = Cursor::new(native);
         let bounds_origin = c.vec3()?;
         let bounds_extent = c.vec3()?;
@@ -299,11 +299,12 @@ fn unpack(b: u8) -> f32 {
 }
 
 /// An FName: name-table index plus number (a number above 0 appends `_<number-1>`).
-fn read_name(c: &mut Cursor<'_>, names: &[String]) -> Result<String> {
+fn read_name<S: AsRef<str>>(c: &mut Cursor<'_>, names: &[S]) -> Result<String> {
     let (index, number) = (c.i32()?, c.i32()?);
     let base = usize::try_from(index)
         .ok()
         .and_then(|i| names.get(i))
+        .map(AsRef::as_ref)
         .ok_or_else(|| MeshError::Unsupported(format!("name index {index}")))?;
-    Ok(if number > 0 { format!("{base}_{}", number - 1) } else { base.clone() })
+    Ok(if number > 0 { format!("{base}_{}", number - 1) } else { base.to_string() })
 }
