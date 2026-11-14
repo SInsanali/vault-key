@@ -175,7 +175,7 @@ impl Service {
     /// `GK_GAME_DATA` is honoured.
     pub fn live() -> Self {
         Self::new(Box::new(|| {
-            let install = gamedata::GameInstall::locate()
+            let install = gkcore::catalog::locate_install()
                 .ok_or_else(|| PictureError::GameData("Borderlands 2 was not found".to_string()))?;
             let mut pictures = Pictures::open(&install)?;
             pictures.set_style(Style { facing: FACING, ..Style::default() });

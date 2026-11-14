@@ -9,7 +9,7 @@
 //! reading marked `unverified`, and classifies them as unknown, so they are shown but are not
 //! offered for duplication until the reading has been confirmed in game.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use gamedata::{
@@ -186,8 +186,12 @@ impl Catalog {
     /// `cache_dir` overrides where the cache lives (default `%LOCALAPPDATA%\VaultKey\GameData`).
     /// The error is a message for the user; the app works without a catalog.
     pub fn load(cache_dir: Option<PathBuf>, progress: &mut dyn FnMut(ImportProgress)) -> Result<Catalog, String> {
-        let install = GameInstall::locate().ok_or_else(|| {
-            "Borderlands 2 was not found in your Steam libraries. Item names and pictures need the game installed on this PC.".to_string()
+        let install = locate_install().ok_or_else(|| {
+            format!(
+                "Borderlands 2 was not found in your Steam libraries. Item names and pictures need the game installed on this PC. \
+                 If it is installed somewhere Vault Key does not look, set the {} environment variable to its folder.",
+                gamedata::GAME_DATA_ENV
+            )
         })?;
         let dir = cache_dir
             .or_else(DatabaseCache::default_directory)
@@ -296,11 +300,84 @@ impl GearClassifier for Catalog {
     }
 }
 
+/// Finds the game install: as [`GameInstall::locate`] (the `GK_GAME_DATA` folder, or Steam
+/// in its default folders), then where the Windows registry says the game, or Steam, is.
+pub fn locate_install() -> Option<GameInstall> {
+    if let Some(found) = GameInstall::locate() {
+        return Some(found);
+    }
+    // A folder named by the override is the only place looked at.
+    if std::env::var_os(gamedata::GAME_DATA_ENV).is_some_and(|v| !v.is_empty()) {
+        return None;
+    }
+    let query = |key: &str, value: &str| registry_text(key, value);
+    let game = query(GAME_UNINSTALL_KEY, "InstallLocation");
+    let steam = [query(r"HKCU\Software\Valve\Steam", "SteamPath"), query(r"HKLM\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath")];
+    game.and_then(|dir| GameInstall::new(dir).ok())
+        .or_else(|| steam.into_iter().flatten().find_map(|root| GameInstall::locate_in(Path::new(&root))))
+}
+
+/// Where Steam records the game's install folder, for "Uninstall a program".
+const GAME_UNINSTALL_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 49520";
+
+/// A text value from the Windows registry, read with Windows' own `reg.exe`.
+fn registry_text(key: &str, value: &str) -> Option<String> {
+    let reg = crate::guards::system_program("reg.exe");
+    let mut command = std::process::Command::new(reg);
+    command.args(["query", key, "/v", value]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command.output().ok().filter(|o| o.status.success())?;
+    registry_value(&String::from_utf8_lossy(&output.stdout), value)
+}
+
+/// The value named `value` in `reg query` output: `    SteamPath    REG_SZ    c:/steam`.
+fn registry_value(text: &str, value: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let rest = line.trim_start().strip_prefix(value)?;
+        let rest = rest.trim_start();
+        let rest = rest.strip_prefix("REG_SZ").or_else(|| rest.strip_prefix("REG_EXPAND_SZ"))?;
+        let found = rest.trim();
+        (!found.is_empty()).then(|| found.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use savekit::{ItemBlob, SaveDocument};
-    use std::path::Path;
+
+    #[test]
+    fn registry_values_are_read_from_reg_query_output() {
+        let text = "\r\nHKEY_CURRENT_USER\\Software\\Valve\\Steam\r\n    SteamPath    REG_SZ    d:/games/steam\r\n\r\n";
+        assert_eq!(registry_value(text, "SteamPath").as_deref(), Some("d:/games/steam"));
+        assert_eq!(registry_value("    InstallLocation    REG_EXPAND_SZ    E:\\BL2 Folder\r\n", "InstallLocation").as_deref(), Some("E:\\BL2 Folder"));
+        assert_eq!(registry_value("    SteamPathX    REG_SZ    x\r\n", "SteamPath"), None);
+        assert_eq!(registry_value("    SteamPath    REG_DWORD    0x1\r\n", "SteamPath"), None);
+        assert_eq!(registry_value("", "SteamPath"), None);
+    }
+
+    #[test]
+    fn the_registry_finds_the_game_when_it_is_installed() {
+        if GameInstall::locate().is_none() {
+            eprintln!("skipped: the game is not installed here");
+            return;
+        }
+        let by_game = registry_text(GAME_UNINSTALL_KEY, "InstallLocation").and_then(|dir| GameInstall::new(dir).ok());
+        let by_steam = registry_text(r"HKCU\Software\Valve\Steam", "SteamPath").and_then(|root| GameInstall::locate_in(Path::new(&root)));
+        assert!(by_game.is_some() || by_steam.is_some());
+    }
+
+    #[test]
+    fn the_registry_can_be_read_here() {
+        // Every Windows install has this value; it proves reg.exe is found and parsed.
+        let root = registry_text(r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion", "SystemRoot");
+        assert!(root.is_some_and(|r| r.to_ascii_lowercase().ends_with("windows")));
+    }
 
     fn live_catalog() -> Option<Catalog> {
         // A temp cache folder: tests never write to the user's real app-data folder.

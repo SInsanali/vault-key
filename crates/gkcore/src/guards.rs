@@ -306,15 +306,19 @@ pub fn live_process_names() -> Result<Vec<String>, GkError> {
     Ok(names)
 }
 
-/// The full path of Windows' own `tasklist.exe`. A bare `tasklist` is looked up in the
-/// program's own folder first, so a `tasklist.exe` left beside a portable copy (say, in
-/// Downloads) would run instead and decide whether saving is allowed.
-fn tasklist_path() -> std::path::PathBuf {
+/// The full path of one of Windows' own programs, such as `tasklist.exe`. A bare name is
+/// looked up in the program's own folder first, so a `tasklist.exe` left beside a portable
+/// copy (say, in Downloads) would run instead and decide whether saving is allowed.
+pub(crate) fn system_program(name: &str) -> std::path::PathBuf {
     let root = std::env::var_os("SystemRoot")
         .map(std::path::PathBuf::from)
         .filter(|root| root.is_absolute())
         .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
-    root.join("System32").join("tasklist.exe")
+    root.join("System32").join(name)
+}
+
+fn tasklist_path() -> std::path::PathBuf {
+    system_program("tasklist.exe")
 }
 
 /// First CSV column of each `tasklist /FO CSV /NH` line: the image name.
