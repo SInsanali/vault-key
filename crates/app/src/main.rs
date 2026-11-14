@@ -170,6 +170,14 @@ fn migrate_old_data(env: Env, new_dir: &std::path::Path) -> Result<bool, String>
         let new_settings = new_dir.join(gkcore::settings::SETTINGS_FILE_NAME);
         if settings.is_file() && !new_settings.exists() {
             std::fs::copy(&settings, &new_settings)?;
+        } else if settings.is_file() {
+            // Settings were written here before the copy worked (an earlier start where it
+            // failed): bring the old locks and marks in without replacing any.
+            let core = |e: gkcore::CoreError| std::io::Error::other(e.message);
+            let mut merged = gkcore::Settings::load(&new_settings).map_err(core)?;
+            if merged.merge_missing(&gkcore::Settings::load(&settings).map_err(core)?) {
+                merged.save(&new_settings).map_err(core)?;
+            }
         }
         std::fs::write(&marker, format!("Settings and backups were copied here from {}.\n", old_dir.display()))
     };
@@ -284,6 +292,15 @@ fn main() {
         std::process::exit(1);
     }
     errlog::install(&data_dir);
+    // The page is told too: locks and backups from the GoldenKey folder are missing until
+    // the copy works (it is tried again at every start).
+    let migration_problem = match &migrated {
+        Some(Err(_)) => Some(
+            "Vault Key could not copy your settings and backups from the old GoldenKey folder, so earlier locks may be missing. It tries again at the next start; the error log has the details."
+                .to_string(),
+        ),
+        _ => None,
+    };
     match migrated {
         Some(Ok(true)) => errlog::write("copied the settings and backups that were in the GoldenKey folder"),
         Some(Err(why)) => errlog::write(&why),
@@ -304,6 +321,9 @@ fn main() {
     let (calls, inbox) = mpsc::channel::<ApiCall>();
     std::thread::spawn(move || {
         let mut api = api::Api::live(catalog_cache, selftest_dir);
+        if let Some(problem) = migration_problem {
+            api.notify(problem);
+        }
         for call in inbox {
             let args = if call.body.is_empty() {
                 Ok(serde_json::Value::Null)
@@ -626,7 +646,7 @@ mod tests {
         let backup = std::path::Path::new("765").join("Save0004.sav").join("20261110-000000Z");
         std::fs::create_dir_all(old.join("backups").join(&backup)).unwrap();
         std::fs::create_dir_all(old.join("GameData")).unwrap();
-        std::fs::write(old.join("settings.txt"), "protected abc Someone\n").unwrap();
+        std::fs::write(old.join("settings.txt"), "protected 0123456789abcdef Someone\n").unwrap();
         std::fs::write(old.join("backups").join(&backup).join("Save0004.sav"), b"save").unwrap();
         std::fs::write(old.join("GameData").join("cache.bin"), b"cache").unwrap();
         let local_text = local.clone().into_os_string();
@@ -638,7 +658,7 @@ mod tests {
         std::fs::create_dir_all(new.join("backups").join(&backup)).unwrap();
         std::fs::write(new.join("backups").join(&backup).join("Save0004.sav"), b"newer").unwrap();
         assert_eq!(migrate_old_data(&env, &new), Ok(true));
-        assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "protected abc Someone\n");
+        assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "protected 0123456789abcdef Someone\n");
         assert_eq!(std::fs::read(new.join("backups").join(&backup).join("Save0004.sav")).unwrap(), b"newer");
         assert!(!new.join("GameData").exists(), "the cache is rebuilt, not copied");
         assert!(old.join("settings.txt").is_file(), "the old folder is left as it is");
@@ -651,10 +671,11 @@ mod tests {
         assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "theme blue\n");
         assert!(!new.join("backups").exists());
 
-        // A new folder with settings of its own keeps them: only backups are added.
+        // A new folder with settings of its own keeps them, and the old locks are added.
         std::fs::remove_file(new.join(MIGRATED_MARKER)).unwrap();
         assert_eq!(migrate_old_data(&env, &new), Ok(true));
-        assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "theme blue\n");
+        let merged = std::fs::read_to_string(new.join("settings.txt")).unwrap();
+        assert!(merged.contains("theme blue\n") && merged.contains("protected 0123456789abcdef Someone\n"), "{merged}");
         assert!(new.join("backups").join(&backup).join("Save0004.sav").is_file());
         let _ = std::fs::remove_dir_all(&local);
     }

@@ -504,6 +504,11 @@ impl Api {
         }
     }
 
+    /// Something the user should be told once, with the next status.
+    pub fn notify(&mut self, notice: String) {
+        self.notices.push(notice);
+    }
+
     /// After a command panicked: the open character may be half changed, so it is closed.
     pub fn recover_from_panic(&mut self) {
         self.session = None;

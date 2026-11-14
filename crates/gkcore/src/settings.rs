@@ -297,6 +297,26 @@ impl Settings {
         self.test_slots.remove(&slot.key()).is_some()
     }
 
+    /// Adds the records `other` has and these settings do not (created files, test-slot
+    /// marks and locked characters), for bringing settings over from an older copy. Nothing
+    /// is taken from settings about a different save folder; nothing here is replaced.
+    pub fn merge_missing(&mut self, other: &Settings) -> bool {
+        if other.save_folder.is_some() && self.save_folder.is_some() && other.save_folder != self.save_folder {
+            return false;
+        }
+        let before = self.clone();
+        for (key, mark) in &other.created {
+            self.created.entry(key.clone()).or_insert_with(|| mark.clone());
+        }
+        for (key, mark) in &other.test_slots {
+            self.test_slots.entry(key.clone()).or_insert_with(|| mark.clone());
+        }
+        for (key, label) in &other.protected {
+            self.protected.entry(key.clone()).or_insert_with(|| label.clone());
+        }
+        *self != before
+    }
+
     /// Drops every record of the slot. True if there was one.
     pub(crate) fn forget(&mut self, slot: &SlotId) -> bool {
         let key = slot.key();
@@ -397,6 +417,28 @@ mod tests {
         assert_eq!(settings.created_character(&slot("Save0005.sav")), None);
         assert_eq!(Settings::parse(&settings.to_text()), settings);
         assert!(settings.unknown_lines.is_empty());
+    }
+
+    #[test]
+    fn older_settings_are_merged_in_without_replacing_anything() {
+        let mut new = Settings::parse("save-folder c:\\s\ntest-slot 76561190000000000/Save0004.sav character=1111111111111111\ntheme red\n");
+        let old = Settings::parse(
+            "save-folder c:\\s\n\
+             created 76561190000000000/Save0003.sav character=fedcba9876543210\n\
+             test-slot 76561190000000000/Save0004.sav character=2222222222222222\n\
+             protected 0123456789abcdef Maya\n\
+             theme blue\n",
+        );
+        assert!(new.merge_missing(&old));
+        assert_eq!(new.created_character(&slot("Save0003.sav")), Some(Some("fedcba9876543210")));
+        assert_eq!(new.test_slot_character(&slot("Save0004.sav")), Some("1111111111111111"));
+        assert!(new.is_protected("0123456789abcdef"));
+        assert_eq!(new.theme(), "red");
+        assert!(!new.merge_missing(&old), "nothing new the second time");
+        // Settings about another save folder are not merged.
+        let elsewhere = Settings::parse("save-folder d:\\other\ncreated 76561190000000000/Save0005.sav character=fedcba9876543210\n");
+        assert!(!new.merge_missing(&elsewhere));
+        assert_eq!(new.created_character(&slot("Save0005.sav")), None);
     }
 
     #[test]

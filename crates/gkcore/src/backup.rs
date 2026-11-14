@@ -451,7 +451,7 @@ mod tests {
         let first = store.create(&slot("Save0002.sav"), &original(), b"one", "a").unwrap();
         let second = store.create(&slot("Save0002.sav"), &original(), b"two", "b").unwrap();
         store.delete(&first.id).unwrap();
-        assert_eq!(store.list().iter().map(|b| b.id.clone()).collect::<Vec<_>>(), [second.id.clone()]);
+        assert_eq!(store.list().iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), [second.id.as_str()]);
         assert_eq!(store.delete(&first.id).unwrap_err().kind, ErrorKind::NoSuchBackup);
         // A folder with something else in it is left alone.
         let folder = Path::new(&second.path).parent().unwrap().to_path_buf();
