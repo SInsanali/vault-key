@@ -286,6 +286,10 @@ pub struct ItemDatabase {
     pub skipped_packages: Vec<String>,
     /// What item cards are computed from (see [`ItemDatabase::stats`]).
     pub stat_data: StatsData,
+    /// Why this freshly built database was not saved to the cache, when it was not. The
+    /// database itself is complete; it is simply built again next time. Never stored in the
+    /// cache (a database read from the cache has `None`).
+    pub cache_problem: Option<String>,
 }
 
 impl ItemDatabase {
@@ -306,6 +310,7 @@ impl ItemDatabase {
             rarity_colors: Vec::new(),
             skipped_packages: Vec::new(),
             stat_data: StatsData::default(),
+            cache_problem: None,
         }
     }
 
