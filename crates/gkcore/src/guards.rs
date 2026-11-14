@@ -329,7 +329,7 @@ pub fn live_process_names() -> Result<Vec<String>, GkError> {
 /// The full path of one of Windows' own programs, such as `tasklist.exe`. A bare name is
 /// looked up in the program's own folder first, so a `tasklist.exe` left beside a portable
 /// copy (say, in Downloads) would run instead and decide whether saving is allowed.
-pub(crate) fn system_program(name: &str) -> std::path::PathBuf {
+pub fn system_program(name: &str) -> std::path::PathBuf {
     let root = std::env::var_os("SystemRoot")
         .map(std::path::PathBuf::from)
         .filter(|root| root.is_absolute())

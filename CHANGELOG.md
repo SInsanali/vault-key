@@ -13,6 +13,8 @@
 - The game is also found through the Windows registry, so item names and pictures work when Steam isn't in Program Files.
 - Security: the window only shows Vault Key's own page and only opens or exports files you chose in a dialog; the game check runs Windows' own tasklist; crafted game files can no longer freeze or crash the app, or make it reach out to the network.
 - Character names are written in plain English letters, digits and punctuation only, which the game reads the same whatever encoding it uses.
+- Settings has a Check for updates button. It asks GitHub for the latest version number, only when you press it; Vault Key doesn't go online otherwise.
+- If Vault Key can't start (its settings belong to another save folder, say), the reason is now in the error log too.
 - Smaller fixes: leftover temp files are cleaned up, files far too large to be saves are never read, a bug in one command no longer stops the window, and the copy from the old GoldenKey folder tells you when it fails.
 
 ## 0.9.0 - 2026-11-10

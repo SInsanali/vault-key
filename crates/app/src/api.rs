@@ -466,6 +466,13 @@ impl Api {
             Box::new(CoreConfig::live)
         };
         let mut api = Api::with_config(config);
+        // The page shows this too, but the log is what people send with a bug report. A save
+        // folder that is not there yet (no game, or never played) is normal, not a problem.
+        if let Err(error) = &api.core {
+            if !matches!(error.kind, gkcore::ErrorKind::SaveFolder) {
+                crate::errlog::write(&format!("could not start: {}", error.message));
+            }
+        }
         api.chosen_paths_only = selftest_dir.is_none();
         api.selftest_dir = selftest_dir;
         let (sender, result) = mpsc::channel();

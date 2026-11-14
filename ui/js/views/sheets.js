@@ -555,6 +555,7 @@ function settingsSheet(state, actions) {
           ),
         ),
       ),
+      updatesSection(state, actions),
       h(
         "div",
         { class: "sheet-section" },
@@ -577,6 +578,36 @@ function settingsSheet(state, actions) {
       h("div", { class: "sheet-actions" }, skewButton({ class: "btn big", autofocus: true, dataset: { fk: "done" }, onClick: () => actions.closeSheet() }, "Close")),
     ),
   ];
+}
+
+/** Settings' Updates section: a check only when asked, then a way to the download page. */
+function updatesSection(state, actions) {
+  const update = state.sheet?.update ?? { phase: "idle" };
+  const checking = update.phase === "checking";
+  let result = null;
+  if (update.phase === "done" && update.newer) {
+    result = h("div", { class: "callout", role: "status" }, icon("check", 18, 2.6), h("span", {}, h("strong", {}, `Vault Key ${update.latest} is out.`), ` You have ${update.current}. Installing it keeps your settings and backups.`));
+  } else if (update.phase === "done") {
+    result = h("p", { class: "note", role: "status" }, `You have the latest version, ${update.current}.`);
+  } else if (update.phase === "error") {
+    result = h("div", { class: "callout bad", role: "alert" }, icon("warn", 18, 2.6), h("span", {}, update.error));
+  }
+  const showPage = update.phase === "error" || (update.phase === "done" && update.newer);
+  return h(
+    "div",
+    { class: "sheet-section" },
+    h("h2", {}, "Updates"),
+    h("p", { class: "note" }, "Checking asks GitHub for the latest version number. Vault Key doesn't go online for anything else."),
+    result,
+    h(
+      "div",
+      { class: "button-row" },
+      h("button", { type: "button", class: "btn small", disabled: checking, dataset: { fk: "check-updates" }, onClick: () => actions.checkForUpdates() }, checking ? "Checking…" : "Check for updates"),
+      showPage
+        ? h("button", { type: "button", class: `btn small ${update.newer ? "yellow" : ""}`, dataset: { fk: "download-page" }, onClick: () => actions.openDownloadPage() }, "Open the download page")
+        : null,
+    ),
+  );
 }
 
 function sheet_error(state) {

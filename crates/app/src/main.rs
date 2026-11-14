@@ -14,6 +14,7 @@ mod errlog;
 mod icon;
 mod pictures;
 mod platform;
+mod updates;
 
 use std::borrow::Cow;
 use std::ffi::OsString;
@@ -404,6 +405,19 @@ fn main() {
                         let answer = match chosen {
                             Ok(path) => serde_json::json!({ "ok": path.map(|p| p.display().to_string()) }),
                             Err(message) => serde_json::json!({ "error": message }),
+                        };
+                        responder.respond(json_response(StatusCode::OK, &answer));
+                    });
+                    return;
+                }
+                // So does an update check, which waits on the network.
+                if updates::handles(command) {
+                    let command = command.to_string();
+                    std::thread::spawn(move || {
+                        let answer = match std::panic::catch_unwind(|| updates::run(&command)) {
+                            Ok(Ok(value)) => serde_json::json!({ "ok": value }),
+                            Ok(Err(message)) => serde_json::json!({ "error": message }),
+                            Err(_) => serde_json::json!({ "error": "Something went wrong inside Vault Key, so that was not done. The error log has the details." }),
                         };
                         responder.respond(json_response(StatusCode::OK, &answer));
                     });

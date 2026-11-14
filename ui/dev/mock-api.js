@@ -424,6 +424,10 @@ function run(command, args) {
       const codes = view().items.map((item) => item.code).filter(Boolean);
       return { codes, text: codes.join("\n") };
     }
+    case "check_for_updates":
+      return { current: "0.9.0", latest: "0.9.1", newer: true };
+    case "open_download_page":
+      return null;
     case "quit":
       return null;
     default:

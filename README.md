@@ -65,6 +65,7 @@
 - Every change is shown before it's written.
 - Characters from the game start locked until you unlock them.
 - Vault Key won't save while Borderlands 2 is running.
+- It only goes online when you press **Check for updates** in Settings.
 
 <br>
 
@@ -90,6 +91,13 @@ administrator rights needed. Prefer not to install? Grab the portable zip instea
 
 > [!TIP]
 > If Steam Cloud asks which save to keep after an edit, pick the local one.
+
+**Updating**
+
+**Settings → Check for updates** tells you when there's a new version. To update, close
+Vault Key and run the new installer (or swap in the new portable zip). Your settings and
+the backups of your saves are kept: they live in their own folder,
+`%LOCALAPPDATA%\VaultKey`, which updates never touch.
 
 <br>
 

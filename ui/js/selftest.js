@@ -510,6 +510,8 @@ export async function run({ state, actions }) {
       same(unmarked.access.writable, false, "slot 1 writable after unmarking");
       actions.openSettings();
       check(count("#sheet .row") >= 2, "the settings sheet does not list the characters");
+      // The button is there; the self-test does not press it (that would go online).
+      check(document.querySelector("#sheet [data-fk='check-updates']"), "the settings sheet has no Check for updates button");
       actions.closeSheet();
       return unmarked.access.explanation;
     });

@@ -680,6 +680,34 @@ export const actions = {
     renderSheetNow();
   },
 
+  /** Settings, "Check for updates": asks GitHub (in the app, on its own thread) for the latest version. */
+  async checkForUpdates() {
+    const sheet = state.sheet;
+    if (sheet?.type !== "settings" || sheet.update?.phase === "checking") return null;
+    sheet.update = { phase: "checking" };
+    renderSheetNow();
+    let update;
+    try {
+      update = { phase: "done", ...(await call("check_for_updates")) };
+    } catch (error) {
+      update = { phase: "error", error: messageOf(error) };
+    }
+    if (state.sheet === sheet) {
+      sheet.update = update;
+      renderSheetNow();
+    }
+    return update;
+  },
+
+  /** Opens the releases page in the user's browser (the window itself stays on the app). */
+  async openDownloadPage() {
+    try {
+      await call("open_download_page");
+    } catch (error) {
+      toast("error", messageOf(error));
+    }
+  },
+
   /** Backups of save files that are gone or can't be read (they have no Backups tab). */
   async openFileBackups() {
     state.sheet = { type: "file-backups", backups: null, error: null };
