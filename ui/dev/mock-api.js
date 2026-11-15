@@ -60,7 +60,7 @@ function status() {
   const found = data !== "nofolder";
   return {
     app: "Vault Key",
-    version: "0.9.0",
+    version: "0.9.1",
     logFile: "C:\\Users\\you\\AppData\\Local\\VaultKey\\vault-key.log",
     theme: mockTheme,
     saveFolder: found
@@ -357,7 +357,7 @@ function restore(backupId) {
 function run(command, args) {
   switch (command) {
     case "ping":
-      return { app: "Vault Key", version: "0.9.0" };
+      return { app: "Vault Key", version: "0.9.1" };
     case "status":
     case "retry_start":
       return status();
@@ -425,7 +425,7 @@ function run(command, args) {
       return { codes, text: codes.join("\n") };
     }
     case "check_for_updates":
-      return { current: "0.9.0", latest: "0.9.1", newer: true };
+      return { current: "0.9.1", latest: "0.9.2", newer: true };
     case "open_download_page":
       return null;
     case "quit":

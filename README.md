@@ -71,7 +71,7 @@
 
 ## Install
 
-Download **`VaultKey-Setup-0.9.0.exe`** from the
+Download **`VaultKey-Setup-0.9.1.exe`** from the
 [latest release](https://github.com/SInsanali/vault-key/releases/latest) and run it. No
 administrator rights needed. Prefer not to install? Grab the portable zip instead.
 

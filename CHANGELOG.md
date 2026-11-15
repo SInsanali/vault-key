@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.1 - 2026-11-14
 
 - Shields, grenade mods and class mods are drawn in their own colours. Before, most came out washed-out white or grey, and some had a false purple tint or glitter.
 - Relics glow in the colour of their kind (Tenacity green, Vitality red, Elemental purple, and so on) instead of plain gold.

@@ -533,14 +533,14 @@ dependencies = [
 
 [[package]]
 name = "gamedata"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "lzo1x",
 ]
 
 [[package]]
 name = "gamemesh"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "gamedata",
  "lzo1x",
@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "gk"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "gkcore",
  "savekit",
@@ -720,7 +720,7 @@ dependencies = [
 
 [[package]]
 name = "gkcore"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "gamedata",
  "savekit",
@@ -1124,7 +1124,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "lzo1x"
-version = "0.9.0"
+version = "0.9.1"
 
 [[package]]
 name = "mac"
@@ -1792,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "savekit"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "lzo1x",
 ]
@@ -2326,7 +2326,7 @@ checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
 
 [[package]]
 name = "vault-key"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "gamedata",
  "gamemesh",
