@@ -109,7 +109,9 @@ the backups of your saves are kept: they live in their own folder,
 
 **Found a bug?** [Open an issue](https://github.com/SInsanali/vault-key/issues) and include
 the last lines of the error log (its location is under **Settings → Where things are**).
-Please don't attach save files to a public issue: they contain your Steam ID.
+A save file can help too: it holds your characters but not your Steam ID. File paths do,
+though (the save folder is named after it), along with your Windows user name, so check the
+log lines before posting them.
 
 <br>
 
