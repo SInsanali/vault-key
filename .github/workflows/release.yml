@@ -53,7 +53,11 @@ jobs:
         run: |
           cargo build --release --locked -p vault-key
           # The window needs WebView2Loader.dll beside the program. The build unpacks one.
-          $loader = Get-ChildItem target\release\build\webview2-com-sys-*\out\x64\WebView2Loader.dll |
+          # Cargo 1.100 and later keep build-script output in build\<crate>\<hash>, earlier ones
+          # in build\<crate>-<hash>.
+          $loader = Get-ChildItem -ErrorAction SilentlyContinue `
+            target\release\build\webview2-com-sys\*\out\x64\WebView2Loader.dll,
+            target\release\build\webview2-com-sys-*\out\x64\WebView2Loader.dll |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $loader) { throw "WebView2Loader.dll was not found under target\release\build." }
           Copy-Item $loader.FullName target\release\

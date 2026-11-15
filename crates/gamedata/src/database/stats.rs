@@ -34,7 +34,7 @@ use super::stat_data::{
     Initialization, ModifierKind, Presentation, PresentationList, PresentationRule, Rounding,
     SignStyle, SlotEffect, StatDefinition, StatsData, ValueData,
 };
-use super::{AssetCategory, DlcResolution, ItemDatabase, ItemRefs, ObjectInfo, Rgba, PART_SLOTS};
+use super::{AssetCategory, DlcResolution, ItemDatabase, ItemRefs, ObjectInfo, Rgba};
 
 /// How deep attribute and formula references may nest before evaluation gives up.
 const MAX_DEPTH: usize = 24;
@@ -1500,8 +1500,8 @@ impl ItemDatabase {
         let parts_category = AssetCategory::parts(item.is_weapon);
         let mut parts: Vec<&StatDefinition> = Vec::new();
         let mut poison = None;
-        for index in 0..PART_SLOTS {
-            let Some(value) = item.parts[index].filter(|&v| v != parts_category.all_ones()) else {
+        for (index, slot) in item.parts.iter().enumerate() {
+            let Some(value) = slot.filter(|&v| v != parts_category.all_ones()) else {
                 continue;
             };
             let definition = path(parts_category, Some(value))
@@ -1564,7 +1564,7 @@ mod tests {
     use crate::database::stat_data::{
         AttributeEffect, CardAttribute, Formula, Remap, SlotEffect, SlotUpgrade, UiStat, WeaponBase,
     };
-    use crate::database::{AssetSet, Rgba};
+    use crate::database::{AssetSet, Rgba, PART_SLOTS};
 
     const W: u32 = 131071;
     const I: u32 = 65535;

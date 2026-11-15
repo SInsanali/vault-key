@@ -35,7 +35,8 @@ exe="$out/vault-key.exe"
 [ -f "$exe" ] || { echo "the build did not produce $exe" >&2; exit 1; }
 
 # The window needs WebView2Loader.dll next to the program. The build unpacks one.
-loader="$(ls -t "$out"/build/webview2-com-sys-*/out/x64/WebView2Loader.dll 2>/dev/null | head -1 || true)"
+# Cargo 1.100 and later keep it in build/<crate>/<hash>, earlier ones in build/<crate>-<hash>.
+loader="$(ls -t "$out"/build/webview2-com-sys/*/out/x64/WebView2Loader.dll "$out"/build/webview2-com-sys-*/out/x64/WebView2Loader.dll 2>/dev/null | head -1 || true)"
 [ -n "$loader" ] || { echo "WebView2Loader.dll was not found under $out/build" >&2; exit 1; }
 [ -f "$out/WebView2Loader.dll" ] && [ ! "$loader" -nt "$out/WebView2Loader.dll" ] || cp "$loader" "$out/WebView2Loader.dll"
 
