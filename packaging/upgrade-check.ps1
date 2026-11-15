@@ -127,6 +127,12 @@ $info = @(
     "name Upgrade Check"
 )
 [System.IO.File]::WriteAllText((Join-Path $backup "backup.txt"), (($info -join "`n") + "`n"))
+# The saves the settings are about. They only need to be there: the records of a save that
+# is gone are dropped on purpose, so a character the game later puts in that file starts
+# locked. The app never writes them here (nothing is unlocked and nothing is saved).
+$saves = @("Save0003.sav", "Save0004.sav") | ForEach-Object { Join-Path $saveData "76561190000000000\$_" }
+$saves | ForEach-Object { [System.IO.File]::WriteAllBytes($_, $bytes) }
+$saveHash = Hash $saves[0]
 Add-Content (Join-Path $data "vault-key.log") "2026-11-01 12:00:00 a line from the old version"
 
 $seeded = @(Get-ChildItem $data -Recurse -File | Where-Object { $_.FullName -notlike (Join-Path $data "WebView\*") } |
@@ -165,6 +171,9 @@ StopApp
 foreach ($file in $seeded | Where-Object { $_ -like "backups\*" }) {
     $path = Join-Path $data $file
     Check "the new program left $file as it was" ((Test-Path $path) -and (Hash $path) -eq $before[$file])
+}
+foreach ($save in $saves) {
+    Check "the new program left $(Split-Path -Leaf $save) in the save folder as it was" ((Test-Path $save) -and (Hash $save) -eq $saveHash)
 }
 $now = @(Get-Content (Join-Path $data "settings.txt"))
 foreach ($line in $settings | Select-Object -Skip 2) {
