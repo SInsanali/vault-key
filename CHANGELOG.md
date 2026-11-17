@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.2 - 2026-11-16
 
 - Settings has a Game folder section. It shows the Borderlands 2 folder item names and pictures come from, and whether it was found automatically. If the game isn't found, or you want another copy, browse to its folder or paste its path; any folder in or around the game works. "Find it automatically" goes back to looking by itself. This replaces setting the GK_GAME_DATA environment variable.
 
