@@ -512,6 +512,20 @@ export async function run({ state, actions }) {
       check(count("#sheet .row") >= 2, "the settings sheet does not list the characters");
       // The button is there; the self-test does not press it (that would go online).
       check(document.querySelector("#sheet [data-fk='check-updates']"), "the settings sheet has no Check for updates button");
+      // The game folder: shown when the game was found, and a folder without it is refused
+      // (nothing is written; the self-test does not change the folder in use).
+      check(document.querySelector("#sheet [data-fk='game-folder-browse']"), "the settings sheet has no game folder Browse button");
+      if (memo.names) {
+        const shown = document.querySelector("#sheet [data-fk='game-folder-path']")?.textContent;
+        same(shown, state.status.gameFolder.path, "game folder shown in Settings");
+      }
+      let refused = null;
+      try {
+        await call("set_game_folder", { path: state.status.saveFolder.dataDir });
+      } catch (error) {
+        refused = error.message;
+      }
+      check(refused, "a folder without the game was taken as the game folder");
       actions.closeSheet();
       return unmarked.access.explanation;
     });

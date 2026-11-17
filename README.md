@@ -86,8 +86,8 @@ administrator rights needed. Prefer not to install? Grab the portable zip instea
   names or pictures.
 
 > [!TIP]
-> If item names say the game wasn't found, set the `GK_GAME_DATA` environment variable to
-> your Borderlands 2 folder (the one that holds `WillowGame`) and start Vault Key again.
+> If item names say the game wasn't found, open **Settings → Game folder** and browse to
+> your Borderlands 2 folder (the one that holds `WillowGame`), or paste its path.
 
 > [!TIP]
 > If Steam Cloud asks which save to keep after an edit, pick the local one.

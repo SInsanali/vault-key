@@ -119,6 +119,10 @@ fn serve_pictures(inbox: mpsc::Receiver<(String, RequestAsyncResponder)>) {
         let routes: Vec<&str> = waiting.iter().map(|(route, _)| route.as_str()).collect();
         let Some(next) = pictures::next_request(&routes) else { continue };
         let (route, responder) = waiting.remove(next);
+        // The user chose another game folder: draw from that one.
+        if !service.is_current() {
+            service = pictures::Service::live();
+        }
         let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| service.answer(&route)));
         let response = match answer {
             Ok(answer) => picture_response(answer),

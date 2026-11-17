@@ -1,4 +1,5 @@
-//! The native Open and Save dialogs ("Open a save file…", "Export to file…").
+//! The native Open and Save dialogs ("Open a save file…", "Export to file…"), and the
+//! folder dialog for Settings' game folder ("Browse…").
 //!
 //! A dialog runs on a thread of its own, owned by the app's window, so it is modal to the
 //! window without holding up the window's event loop or the API worker. The page asks with
@@ -9,6 +10,8 @@
 //! The paths a dialog returns are also remembered here, and the app only opens or exports
 //! to a path the user chose in a dialog (see [`was_chosen`]). The page cannot name a file
 //! of its own, so a page that is not Vault Key's could not read or overwrite anything.
+//! (The game folder is different: it is only read, and may be pasted; see the API's
+//! `set_game_folder`.)
 
 use std::ffi::OsString;
 use std::num::NonZeroIsize;
@@ -52,6 +55,8 @@ pub enum Request {
     Open,
     /// Pick where to export: a suggested file name and, if known, the folder to start in.
     Export { name: String, folder: Option<PathBuf> },
+    /// Pick the game's folder, starting in the one in use, if any.
+    GameFolder { folder: Option<PathBuf> },
 }
 
 impl Request {
@@ -59,14 +64,32 @@ impl Request {
     pub fn from_command(command: &str, args: &Value) -> Option<Request> {
         match command {
             "pick_open_file" => Some(Request::Open),
+            "pick_game_folder" => Some(Request::GameFolder { folder: absolute_folder(args) }),
             "pick_export_file" => {
                 let name = args.get("suggestedName").and_then(Value::as_str).map(clean_name).filter(|n| !n.is_empty());
-                let folder = args.get("folder").and_then(Value::as_str).filter(|f| !f.is_empty()).map(PathBuf::from).filter(|f| f.is_absolute());
-                Some(Request::Export { name: name.unwrap_or_else(|| "Save0002.sav".to_string()), folder })
+                Some(Request::Export { name: name.unwrap_or_else(|| "Save0002.sav".to_string()), folder: absolute_folder(args) })
             }
             _ => None,
         }
     }
+}
+
+/// The `folder` argument, if it is an absolute path.
+fn absolute_folder(args: &Value) -> Option<PathBuf> {
+    args.get("folder").and_then(Value::as_str).filter(|f| !f.is_empty()).map(PathBuf::from).filter(|f| f.is_absolute())
+}
+
+/// Where the game folder dialog starts: the folder asked for if it exists, else Steam's
+/// usual game folder, else wherever Windows likes.
+fn game_folder_start(asked: Option<&Path>, env: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    if let Some(folder) = asked.filter(|f| f.is_dir()) {
+        return Some(folder.to_path_buf());
+    }
+    ["ProgramFiles(x86)", "ProgramFiles"]
+        .into_iter()
+        .filter_map(|key| env(key).filter(|v| !v.is_empty()))
+        .map(|base| PathBuf::from(base).join("Steam").join("steamapps").join("common"))
+        .find(|dir| dir.is_dir())
 }
 
 /// A file name the dialog can suggest: no folders, no characters Windows refuses.
@@ -129,8 +152,9 @@ pub fn show(owner: Owner, request: Request, answer: impl FnOnce(Result<Option<Pa
     std::thread::spawn(move || {
         let env = |key: &str| std::env::var_os(key);
         let purpose = match request {
-            Request::Open => Purpose::Open,
-            Request::Export { .. } => Purpose::Export,
+            Request::Open => Some(Purpose::Open),
+            Request::Export { .. } => Some(Purpose::Export),
+            Request::GameFolder { .. } => None,
         };
         let chosen = match request {
             Request::Open => {
@@ -155,8 +179,15 @@ pub fn show(owner: Owner, request: Request, answer: impl FnOnce(Result<Option<Pa
                 }
                 dialog.save_file()
             }
+            Request::GameFolder { folder } => {
+                let mut dialog = rfd::FileDialog::new().set_title("Choose your Borderlands 2 folder").set_parent(&owner);
+                if let Some(folder) = game_folder_start(folder.as_deref(), &env) {
+                    dialog = dialog.set_directory(folder);
+                }
+                dialog.pick_folder()
+            }
         };
-        if let Some(path) = &chosen {
+        if let (Some(path), Some(purpose)) = (&chosen, purpose) {
             remember(purpose, path);
         }
         OPEN.store(false, Ordering::SeqCst);
@@ -183,6 +214,11 @@ mod tests {
     fn requests_from_the_page() {
         assert_eq!(Request::from_command("pick_open_file", &Value::Null), Some(Request::Open));
         assert_eq!(Request::from_command("open_file", &Value::Null), None);
+        assert_eq!(Request::from_command("pick_game_folder", &Value::Null), Some(Request::GameFolder { folder: None }));
+        assert_eq!(
+            Request::from_command("pick_game_folder", &json!({ "folder": "rel\\ative" })),
+            Some(Request::GameFolder { folder: None })
+        );
         let export = |args: Value| Request::from_command("pick_export_file", &args).unwrap();
         assert_eq!(export(json!({ "suggestedName": "Save0002.sav" })), Request::Export { name: "Save0002.sav".into(), folder: None });
         // Only a name is suggested: no folders sneak in, nor characters Windows refuses.
@@ -204,6 +240,15 @@ mod tests {
         assert_eq!(start_folder(Some(&temp.join("gone")), &env), Some(docs.clone()));
         assert_eq!(start_folder(None, &env), Some(docs));
         assert_eq!(start_folder(None, &|_: &str| None), None);
+
+        // The game folder dialog: the folder in use, else Steam's common folder.
+        let common = temp.join("Steam").join("steamapps").join("common");
+        std::fs::create_dir_all(&common).unwrap();
+        let programs = temp.clone().into_os_string();
+        let env = move |key: &str| (key == "ProgramFiles(x86)").then(|| programs.clone());
+        assert_eq!(game_folder_start(Some(&temp), &env), Some(temp.clone()));
+        assert_eq!(game_folder_start(Some(&temp.join("gone")), &env), Some(common.clone()));
+        assert_eq!(game_folder_start(None, &|_: &str| None), None);
         let _ = std::fs::remove_dir_all(&temp);
     }
 }

@@ -22,6 +22,10 @@
 //! identified by Steam ID and file name only, so entries made for one save folder (a test
 //! sandbox, say) must never be applied to another (the real one). [`crate::Core`] refuses
 //! to start on a settings file that belongs to a different save folder.
+//!
+//! A `game-folder <path>` line is the Borderlands 2 folder the user chose in Settings, for
+//! when Vault Key does not find the game by itself. (Versions before 0.9.2 keep it as a line
+//! they do not understand.)
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -43,6 +47,7 @@ const TEST_SLOT: &str = "test-slot";
 const CHARACTER: &str = " character=";
 const PROTECTED: &str = "protected";
 const THEME: &str = "theme";
+const GAME_FOLDER: &str = "game-folder";
 
 /// The app's color themes. The first is the default.
 pub const THEMES: [&str; 4] = ["yellow", "blue", "purple", "red"];
@@ -79,6 +84,8 @@ pub struct Settings {
     protected: BTreeMap<String, String>,
     /// One of [`THEMES`]; `None` for the default.
     theme: Option<String>,
+    /// The game folder the user chose, as they chose it.
+    game_folder: Option<String>,
     unknown_lines: Vec<String>,
 }
 
@@ -118,6 +125,10 @@ impl Settings {
             let (keyword, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
             if keyword == SAVE_FOLDER && !rest.trim().is_empty() && settings.save_folder.is_none() {
                 settings.save_folder = Some(rest.trim().to_string());
+                continue;
+            }
+            if keyword == GAME_FOLDER && !rest.trim().is_empty() && settings.game_folder.is_none() {
+                settings.game_folder = Some(rest.trim().to_string());
                 continue;
             }
             let rest = rest.trim();
@@ -177,6 +188,9 @@ impl Settings {
         }
         if let Some(theme) = &self.theme {
             out += &format!("{THEME} {theme}\n");
+        }
+        if let Some(folder) = &self.game_folder {
+            out += &format!("{GAME_FOLDER} {folder}\n");
         }
         for line in &self.unknown_lines {
             out += line;
@@ -253,6 +267,22 @@ impl Settings {
             return false;
         }
         self.theme = (theme != THEMES[0]).then(|| theme.to_string());
+        true
+    }
+
+    /// The game folder the user chose in Settings, if they chose one.
+    pub fn game_folder(&self) -> Option<&str> {
+        self.game_folder.as_deref()
+    }
+
+    /// Sets (or, with `None`, forgets) the game folder the user chose. False, and nothing
+    /// changes, for a path that can't be kept on one line of the file.
+    pub(crate) fn set_game_folder(&mut self, folder: Option<&str>) -> bool {
+        let folder = folder.map(str::trim);
+        if folder.is_some_and(|f| f.is_empty() || f.chars().any(char::is_control)) {
+            return false;
+        }
+        self.game_folder = folder.map(str::to_string);
         true
     }
 
@@ -439,6 +469,26 @@ mod tests {
         let elsewhere = Settings::parse("save-folder d:\\other\ncreated 76561190000000000/Save0005.sav character=fedcba9876543210\n");
         assert!(!new.merge_missing(&elsewhere));
         assert_eq!(new.created_character(&slot("Save0005.sav")), None);
+    }
+
+    #[test]
+    fn the_game_folder_line_round_trips() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.game_folder(), None);
+        assert!(settings.set_game_folder(Some(r"D:\Games\Steam Library\steamapps\common\Borderlands 2")));
+        let again = Settings::parse(&settings.to_text());
+        assert_eq!(again.game_folder(), Some(r"D:\Games\Steam Library\steamapps\common\Borderlands 2"));
+        assert!(again.unknown_lines.is_empty());
+        // Nothing that would break the file.
+        assert!(!settings.set_game_folder(Some("C:\\a\nformat 2")));
+        assert!(!settings.set_game_folder(Some("  ")));
+        assert_eq!(settings.game_folder(), Some(r"D:\Games\Steam Library\steamapps\common\Borderlands 2"));
+        assert!(settings.set_game_folder(None));
+        assert!(!settings.to_text().contains("game-folder"));
+        // An older version keeps the line as one it does not understand, so it comes back.
+        let two = Settings::parse("game-folder E:\\BL2\ngame-folder F:\\x\n");
+        assert_eq!(two.game_folder(), Some("E:\\BL2"));
+        assert_eq!(two.unknown_lines, ["game-folder F:\\x"]);
     }
 
     #[test]

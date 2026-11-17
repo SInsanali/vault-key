@@ -229,6 +229,30 @@ async function loadBackups() {
   if (state.tab === "backups") renderMain();
 }
 
+/**
+ * Sets or forgets the game folder, then shows the new state: the app starts reading item
+ * names from the folder, which the status shows as it goes.
+ */
+async function changeGameFolder(command, args) {
+  const sheet = state.sheet?.type === "settings" ? state.sheet : null;
+  if (sheet) {
+    sheet.gameFolder = { ...sheet.gameFolder, busy: true, error: null };
+    renderSheetNow();
+  }
+  let ok = true;
+  try {
+    await call(command, args);
+  } catch (error) {
+    ok = false;
+    if (sheet) sheet.gameFolder = { ...sheet.gameFolder, error: messageOf(error) };
+    else toast("error", messageOf(error));
+  }
+  if (sheet) sheet.gameFolder = { ...sheet.gameFolder, busy: false, ...(ok ? { draft: "" } : {}) };
+  await actions.refreshStatus();
+  if (state.sheet === sheet) renderSheetNow();
+  return ok;
+}
+
 async function loadCharacters() {
   try {
     const answer = await call("list_characters");
@@ -289,7 +313,7 @@ export const actions = {
       }
     }
     // Most polls find nothing new; then nothing is redrawn.
-    const view = (status) => JSON.stringify([status?.saveFolder, status?.game, status?.itemData]);
+    const view = (status) => JSON.stringify([status?.saveFolder, status?.game, status?.itemData, status?.gameFolder]);
     if (view(before) !== view(state.status)) {
       renderSide();
       if (state.sheet) renderSheetNow();
@@ -678,6 +702,37 @@ export const actions = {
   openSettings() {
     state.sheet = { type: "settings", error: null };
     renderSheetNow();
+  },
+
+  /** Settings, Game folder: what is typed or pasted in the box, kept across redraws. */
+  setGameFolderDraft(text) {
+    if (state.sheet?.type !== "settings") return;
+    state.sheet.gameFolder = { ...state.sheet.gameFolder, draft: text, error: null };
+  },
+
+  /** Settings, Game folder, "Browse…": the folder dialog, then that folder is used. */
+  async browseGameFolder() {
+    let path;
+    try {
+      path = await call("pick_game_folder", { folder: state.status?.gameFolder?.path ?? "" });
+    } catch (error) {
+      if (state.sheet?.type === "settings") {
+        state.sheet.gameFolder = { ...state.sheet.gameFolder, error: messageOf(error) };
+        renderSheetNow();
+      }
+      return null;
+    }
+    return path ? actions.useGameFolder(path) : null;
+  },
+
+  /** Settings, Game folder: reads item names and pictures from this folder from now on. */
+  async useGameFolder(path) {
+    return changeGameFolder("set_game_folder", { path });
+  },
+
+  /** Settings, Game folder, "Find it automatically": forgets the chosen folder. */
+  async findGameFolder() {
+    return changeGameFolder("clear_game_folder", {});
   },
 
   /** Settings, "Check for updates": asks GitHub (in the app, on its own thread) for the latest version. */

@@ -186,18 +186,21 @@ impl Catalog {
     /// `cache_dir` overrides where the cache lives (default `%LOCALAPPDATA%\VaultKey\GameData`).
     /// The error is a message for the user; the app works without a catalog.
     pub fn load(cache_dir: Option<PathBuf>, progress: &mut dyn FnMut(ImportProgress)) -> Result<Catalog, String> {
-        let install = locate_install().ok_or_else(|| {
-            format!(
-                "Borderlands 2 was not found in your Steam libraries. Item names and pictures need the game installed on this PC. \
-                 If it is installed somewhere Vault Key does not look, set the {} environment variable to its folder.",
-                gamedata::GAME_DATA_ENV
-            )
-        })?;
+        let install = locate_install().ok_or_else(|| NOT_FOUND_MESSAGE.to_string())?;
+        Self::load_from(&install, cache_dir, progress)
+    }
+
+    /// The catalog of the game in `install`.
+    pub fn load_from(
+        install: &GameInstall,
+        cache_dir: Option<PathBuf>,
+        progress: &mut dyn FnMut(ImportProgress),
+    ) -> Result<Catalog, String> {
         let dir = cache_dir
             .or_else(DatabaseCache::default_directory)
             .ok_or_else(|| "There is no local app-data folder to keep the item data in.".to_string())?;
-        let cache = DatabaseCache::new(dir, &install).map_err(|e| e.to_string())?;
-        let db = gamedata::load_or_import(&install, &cache, progress, &AtomicBool::new(false)).map_err(|e| e.to_string())?;
+        let cache = DatabaseCache::new(dir, install).map_err(|e| e.to_string())?;
+        let db = gamedata::load_or_import(install, &cache, progress, &AtomicBool::new(false)).map_err(|e| e.to_string())?;
         Ok(Catalog { db })
     }
 
@@ -300,6 +303,83 @@ impl GearClassifier for Catalog {
     }
 }
 
+/// What the user is told when the game is not found.
+pub const NOT_FOUND_MESSAGE: &str =
+    "Borderlands 2 wasn't found. Item names and pictures need the game installed on this PC: choose its folder in Settings.";
+
+/// How the game folder in use was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallSource {
+    /// The user chose it in Settings.
+    Chosen,
+    /// The `GK_GAME_DATA` environment variable names it.
+    Environment,
+    /// Found by looking in Steam's folders and the registry.
+    Found,
+}
+
+impl InstallSource {
+    pub fn code(self) -> &'static str {
+        match self {
+            InstallSource::Chosen => "chosen",
+            InstallSource::Environment => "environment",
+            InstallSource::Found => "found",
+        }
+    }
+}
+
+/// The game folder to read, and how it was found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallSearch {
+    pub install: Option<GameInstall>,
+    pub source: Option<InstallSource>,
+    /// Set when the folder the user chose no longer holds the game (the game was moved or
+    /// uninstalled): a sentence for the user. The game is then looked for as usual.
+    pub problem: Option<String>,
+}
+
+/// Finds the game: the folder the user chose in Settings, if it still holds the game; else
+/// as [`locate_install`].
+pub fn find_install(chosen: Option<&Path>) -> InstallSearch {
+    let mut problem = None;
+    if let Some(folder) = chosen {
+        match install_at(folder) {
+            Some(install) => return InstallSearch { install: Some(install), source: Some(InstallSource::Chosen), problem: None },
+            None => {
+                problem = Some(format!(
+                    "The game folder you chose, {}, doesn't have Borderlands 2 in it any more. Choose the folder again if the game has moved.",
+                    folder.display()
+                ))
+            }
+        }
+    }
+    let by_env = std::env::var_os(gamedata::GAME_DATA_ENV).is_some_and(|v| !v.is_empty());
+    let install = locate_install();
+    let source = install.as_ref().map(|_| if by_env { InstallSource::Environment } else { InstallSource::Found });
+    InstallSearch { install, source, problem }
+}
+
+/// The game install in or around `folder`, for a folder the user chose or pasted. People
+/// pick the folder that holds `WillowGame`, but also often `WillowGame` itself, a folder
+/// inside it, the `common` folder that holds the game, or the Steam library it is in; all
+/// of these are taken. Only a folder that really holds the game's files is accepted.
+pub fn install_at(folder: &Path) -> Option<GameInstall> {
+    if !folder.is_absolute() {
+        return None;
+    }
+    // The folder itself, or one that holds it (WillowGame, WillowGame\CookedPCConsole,
+    // Binaries\Win32).
+    let mut candidates: Vec<PathBuf> = folder.ancestors().take(4).map(Path::to_path_buf).collect();
+    // A folder it holds: common, or steamapps.
+    candidates.push(folder.join("Borderlands 2"));
+    candidates.push(folder.join("common").join("Borderlands 2"));
+    candidates
+        .into_iter()
+        .find_map(|candidate| GameInstall::new(candidate).ok())
+        // A Steam folder or library.
+        .or_else(|| GameInstall::locate_in(folder))
+}
+
 /// Finds the game install: as [`GameInstall::locate`] (the `GK_GAME_DATA` folder, or Steam
 /// in its default folders), then where the Windows registry says the game, or Steam, is.
 pub fn locate_install() -> Option<GameInstall> {
@@ -350,6 +430,53 @@ fn registry_value(text: &str, value: &str) -> Option<String> {
 mod tests {
     use super::*;
     use savekit::{ItemBlob, SaveDocument};
+
+    /// A folder that looks like a Steam library with the game in it:
+    /// `<temp>/steamapps/common/Borderlands 2/WillowGame/CookedPCConsole/Startup.upk`.
+    fn fake_library(name: &str) -> PathBuf {
+        let library = std::env::temp_dir().join(format!("gk-install-{name}-{}", std::process::id()));
+        let cooked = library.join("steamapps/common/Borderlands 2/WillowGame/CookedPCConsole");
+        std::fs::create_dir_all(&cooked).unwrap();
+        std::fs::write(cooked.join("Startup.upk"), b"not really").unwrap();
+        std::fs::create_dir_all(library.join("steamapps/common/Borderlands 2/Binaries/Win32")).unwrap();
+        library
+    }
+
+    #[test]
+    fn a_chosen_folder_is_taken_in_or_around_the_game() {
+        let library = fake_library("around");
+        let game = library.join("steamapps").join("common").join("Borderlands 2");
+        for picked in [
+            game.clone(),
+            game.join("WillowGame"),
+            game.join("WillowGame").join("CookedPCConsole"),
+            game.join("Binaries").join("Win32"),
+            library.join("steamapps").join("common"),
+            library.join("steamapps"),
+            library.clone(),
+        ] {
+            assert_eq!(install_at(&picked).map(|i| i.root().to_path_buf()), Some(game.clone()), "{}", picked.display());
+        }
+        assert_eq!(install_at(Path::new("steamapps/common/Borderlands 2")), None, "a relative path is refused");
+        assert_eq!(install_at(&library.join("elsewhere")), None);
+        let _ = std::fs::remove_dir_all(library);
+    }
+
+    #[test]
+    fn the_chosen_folder_comes_first_and_a_stale_one_is_reported() {
+        let library = fake_library("chosen");
+        let game = library.join("steamapps").join("common").join("Borderlands 2");
+        let found = find_install(Some(&game.join("WillowGame")));
+        assert_eq!(found.install.map(|i| i.root().to_path_buf()), Some(game.clone()));
+        assert_eq!((found.source, found.problem), (Some(InstallSource::Chosen), None));
+
+        let gone = library.join("moved");
+        let found = find_install(Some(&gone));
+        assert!(found.problem.is_some_and(|p| p.contains("moved")));
+        // The game is then looked for as usual (it may or may not be on this PC).
+        assert_ne!(found.source, Some(InstallSource::Chosen));
+        let _ = std::fs::remove_dir_all(library);
+    }
 
     #[test]
     fn registry_values_are_read_from_reg_query_output() {

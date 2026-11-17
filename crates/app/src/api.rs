@@ -7,7 +7,7 @@
 //! Every command answers with plain JSON. Errors are sentences for the person using the
 //! app; the ones that come from `gkcore` are passed through unchanged.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use gkcore::session::DUPLICATE_OF_IMPORT_MESSAGE;
 use gkcore::app::EXTERNAL_MESSAGE;
+use gkcore::catalog::{InstallSearch, InstallSource};
 use gkcore::{
     BackupInfo, Catalog, CharacterClass, CharacterEntry, CharacterSession, CharacterSnapshot, Core, CoreConfig,
     CoreError, Currency, Edit, EntryRef, ExportReport, GameStatus, ItemLocation, ItemRow, SaveReport, SessionSource,
@@ -56,6 +57,10 @@ pub struct Api {
     core: Result<Core, CoreError>,
     session: Option<CharacterSession>,
     item_data: ItemData,
+    /// The game folder item data is read from, and how it was found.
+    game_folder: InstallSearch,
+    /// Where the item data is kept between runs. `None` in tests: then it is never read.
+    catalog_cache: Option<PathBuf>,
     game: Option<(Instant, GameStatus)>,
     /// Things that happened by themselves and the user should be told once.
     notices: Vec<String>,
@@ -475,11 +480,38 @@ impl Api {
         }
         api.chosen_paths_only = selftest_dir.is_none();
         api.selftest_dir = selftest_dir;
+        api.catalog_cache = Some(catalog_cache);
+        api.find_game();
+        api
+    }
+
+    /// Looks for the game (the folder chosen in Settings first) and starts reading its item
+    /// data.
+    fn find_game(&mut self) {
+        let chosen = self.core.as_ref().ok().and_then(|core| core.settings().game_folder()).map(PathBuf::from);
+        self.use_game_folder(gkcore::catalog::find_install(chosen.as_deref()));
+    }
+
+    /// Reads item data and draws pictures from this game folder, unless they already come
+    /// from it.
+    fn use_game_folder(&mut self, search: InstallSearch) {
+        let same = search.install == self.game_folder.install && matches!(self.item_data, ItemData::Ready(_));
+        let install = search.install.clone();
+        self.game_folder = search;
+        if same {
+            return;
+        }
+        crate::pictures::use_install(install.clone());
+        let Some(cache) = self.catalog_cache.clone() else { return };
+        let Some(install) = install else {
+            self.item_data = ItemData::Unavailable(gkcore::catalog::NOT_FOUND_MESSAGE.to_string());
+            return;
+        };
         let (sender, result) = mpsc::channel();
         let percent = Arc::new(AtomicU32::new(0));
         let shown = percent.clone();
         std::thread::spawn(move || {
-            let loaded = Catalog::load(Some(catalog_cache), &mut |progress| {
+            let loaded = Catalog::load_from(&install, Some(cache), &mut |progress| {
                 // The fraction is 0 to 1, so the cast cannot overflow or go negative.
                 let done = (progress.fraction.clamp(0.0, 1.0) * 100.0) as u32;
                 shown.store(done, Ordering::Relaxed);
@@ -487,8 +519,44 @@ impl Api {
             // The app may have closed meanwhile; then nobody is listening, which is fine.
             let _ = sender.send(loaded);
         });
-        api.expect_item_data(result, percent);
-        api
+        self.expect_item_data(result, percent);
+    }
+
+    /// Settings, "Game folder": the folder the user chose or pasted. Any folder in or around
+    /// the game is taken (see [`gkcore::catalog::install_at`]), and the game's own folder is
+    /// what is kept. Pasting is allowed, unlike for save files: the folder is only ever
+    /// read, and only when it holds the game's files.
+    fn set_game_folder(&mut self, args: &Value) -> CommandResult {
+        self.refuse_while_reading()?;
+        // "Copy as path" puts quotes around it.
+        let text = text_arg(args, "path")?.trim().trim_matches('"').trim();
+        if text.is_empty() {
+            return Err("Paste the folder's path, or choose it with Browse.".to_string());
+        }
+        let install = gkcore::catalog::install_at(Path::new(text)).ok_or_else(|| {
+            format!("Borderlands 2 isn't in {text}. Choose the folder that holds WillowGame, usually Steam\\steamapps\\common\\Borderlands 2.")
+        })?;
+        self.core()?.set_game_folder(Some(install.root())).map_err(message)?;
+        self.use_game_folder(InstallSearch { install: Some(install), source: Some(InstallSource::Chosen), problem: None });
+        self.status(&Value::Null)
+    }
+
+    /// Settings, "Find it automatically": forgets the chosen folder and looks again.
+    fn clear_game_folder(&mut self) -> CommandResult {
+        self.refuse_while_reading()?;
+        self.core()?.set_game_folder(None).map_err(message)?;
+        self.find_game();
+        self.status(&Value::Null)
+    }
+
+    /// Item data is read by one thread at a time (it may write the same cache files).
+    fn refuse_while_reading(&self) -> Result<(), String> {
+        match self.item_data {
+            ItemData::Loading { .. } => {
+                Err("Vault Key is still reading item names from the game. Try again when that's done.".to_string())
+            }
+            _ => Ok(()),
+        }
     }
 
     /// The catalog is being loaded elsewhere and will arrive on `result`.
@@ -504,6 +572,8 @@ impl Api {
             core,
             session: None,
             item_data: ItemData::Unavailable("Item data has not been loaded.".to_string()),
+            game_folder: InstallSearch { install: None, source: None, problem: None },
+            catalog_cache: None,
             game: None,
             notices: Vec::new(),
             selftest_dir: None,
@@ -675,6 +745,11 @@ impl Api {
             "saveFolder": folder,
             "game": game,
             "itemData": self.item_data_json(),
+            "gameFolder": {
+                "path": self.game_folder.install.as_ref().map(|install| install.root().display().to_string()),
+                "source": self.game_folder.source.map(InstallSource::code),
+                "problem": self.game_folder.problem,
+            },
             "open": self.session.as_ref().map(open_id),
             "pendingCount": self.session.as_ref().map_or(0, CharacterSession::pending_count),
             "notices": std::mem::take(&mut self.notices),
@@ -844,6 +919,11 @@ impl Api {
                     if let (Ok(core), ItemData::Ready(catalog)) = (&mut self.core, &self.item_data) {
                         core.set_classifier(catalog.clone());
                     }
+                    // The settings may name the game folder.
+                    let chosen = self.core.as_ref().is_ok_and(|core| core.settings().game_folder().is_some());
+                    if chosen && self.catalog_cache.is_some() && !matches!(self.item_data, ItemData::Loading { .. }) {
+                        self.find_game();
+                    }
                 }
                 self.status(args)
             }
@@ -916,6 +996,8 @@ impl Api {
                 self.core()?.set_theme(theme).map_err(message)?;
                 Ok(json!({ "theme": theme }))
             }
+            "set_game_folder" => self.set_game_folder(args),
+            "clear_game_folder" => self.clear_game_folder(),
             "lock_character" => self.set_locked(args, true),
             "unlock_character" => self.set_locked(args, false),
             "export_codes" => {

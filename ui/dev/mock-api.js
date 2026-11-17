@@ -43,11 +43,26 @@ function listing() {
   };
 }
 
+let mockNames = params.get("names") ?? "ready";
+const STEAM_GAME = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Borderlands 2";
+/** The game folder in use: `names=off` is a PC where the game was not found. */
+let mockGameFolder = mockNames === "off" ? { path: null, source: null, problem: null } : { path: STEAM_GAME, source: "found", problem: null };
+
 function itemData() {
-  const names = params.get("names") ?? "ready";
-  if (names === "loading") return { state: "loading", percent: 40, message: "Reading item names from your game…" };
-  if (names === "off") return { state: "unavailable", message: "Borderlands 2 was not found in your Steam libraries. Item names and pictures need the game installed on this PC." };
+  if (mockNames === "loading") return { state: "loading", percent: 40, message: "Reading item names from your game…" };
+  if (mockNames === "off") return { state: "unavailable", message: "Borderlands 2 wasn't found. Item names and pictures need the game installed on this PC: choose its folder in Settings." };
   return { state: "ready", message: "Item names come from your game's own files." };
+}
+
+function setGameFolder(path) {
+  const text = (path ?? "").trim().replace(/^"|"$/g, "").trim();
+  if (!text) throw new Refusal("Paste the folder's path, or choose it with Browse.");
+  if (!/borderlands 2/i.test(text)) {
+    throw new Refusal(`Borderlands 2 isn't in ${text}. Choose the folder that holds WillowGame, usually Steam\\steamapps\\common\\Borderlands 2.`);
+  }
+  mockGameFolder = { path: text.replace(/\\WillowGame.*$/i, ""), source: "chosen", problem: null };
+  mockNames = "ready";
+  return status();
 }
 
 let mockTheme = params.get("theme") ?? "yellow";
@@ -76,6 +91,7 @@ function status() {
         },
     game: found ? game : null,
     itemData: itemData(),
+    gameFolder: mockGameFolder,
     open: session?.slotId ?? null,
     pendingCount: session?.edits.length ?? 0,
     notices: [],
@@ -424,6 +440,14 @@ function run(command, args) {
       const codes = view().items.map((item) => item.code).filter(Boolean);
       return { codes, text: codes.join("\n") };
     }
+    case "pick_game_folder":
+      return "D:\\SteamLibrary\\steamapps\\common\\Borderlands 2";
+    case "set_game_folder":
+      return setGameFolder(args.path);
+    case "clear_game_folder":
+      mockGameFolder = { path: STEAM_GAME, source: "found", problem: null };
+      mockNames = "ready";
+      return status();
     case "check_for_updates":
       return { current: "0.9.1", latest: "0.9.2", newer: true };
     case "open_download_page":

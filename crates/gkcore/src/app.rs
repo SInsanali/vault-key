@@ -347,6 +347,18 @@ impl Core {
         self.keep_settings(before)
     }
 
+    /// Remembers the Borderlands 2 folder the user chose (or, with `None`, forgets it, so
+    /// the game is looked for again) and writes the settings. Whether the folder holds the
+    /// game is the caller's question.
+    pub fn set_game_folder(&mut self, folder: Option<&Path>) -> Result<()> {
+        let before = self.settings.clone();
+        let text = folder.map(|f| f.display().to_string());
+        if !self.settings.set_game_folder(text.as_deref()) {
+            return fail(ErrorKind::InvalidValue, "That folder name can't be kept in the settings.".to_string());
+        }
+        self.keep_settings(before)
+    }
+
     /// Locks the character in this slot: the same as [`Core::protect`].
     pub fn lock(&mut self, slot_id: &SlotId) -> Result<()> {
         self.protect(slot_id)

@@ -555,6 +555,7 @@ function settingsSheet(state, actions) {
           ),
         ),
       ),
+      gameFolderSection(state, actions),
       updatesSection(state, actions),
       h(
         "div",
@@ -578,6 +579,73 @@ function settingsSheet(state, actions) {
       h("div", { class: "sheet-actions" }, skewButton({ class: "btn big", autofocus: true, dataset: { fk: "done" }, onClick: () => actions.closeSheet() }, "Close")),
     ),
   ];
+}
+
+/** How the game folder in use was found, in words. */
+const GAME_FOLDER_SOURCE = {
+  found: "Found automatically.",
+  chosen: "You chose this folder.",
+  environment: "Set by the GK_GAME_DATA environment variable.",
+};
+
+/**
+ * Settings' Game folder section: the Borderlands 2 folder item names and pictures are read
+ * from, as found or chosen, and ways to choose another (Browse, or paste its path).
+ */
+function gameFolderSection(state, actions) {
+  const folder = state.status?.gameFolder ?? { path: null, source: null, problem: null };
+  const form = state.sheet?.gameFolder ?? {};
+  const reading = state.status?.itemData?.state === "loading";
+  const busy = reading || form.busy;
+  const input = h("input", {
+    class: "input plain path-input",
+    type: "text",
+    autocomplete: "off",
+    spellcheck: "false",
+    placeholder: "Or paste the folder's path here",
+    "aria-label": "Borderlands 2 folder",
+    value: form.draft ?? "",
+    disabled: busy,
+    dataset: { fk: "game-folder-input" },
+    onInput: () => {
+      actions.setGameFolderDraft(input.value);
+      use.disabled = !input.value.trim();
+    },
+    onKeydown: (event) => {
+      if (event.key === "Enter" && input.value.trim()) actions.useGameFolder(input.value);
+    },
+  });
+  // Taken once something is typed or pasted.
+  const use = h("button", { type: "button", class: "btn small yellow", disabled: busy || !input.value.trim(), dataset: { fk: "game-folder-use" }, onClick: () => actions.useGameFolder(input.value) }, "Use this folder");
+  return h(
+    "div",
+    { class: "sheet-section", dataset: { fk: "game-folder" } },
+    h("h2", {}, "Game folder"),
+    h("p", { class: "note" }, "Item names and pictures are read from your Borderlands 2 folder, the one that holds WillowGame. Vault Key only reads it, never changes it."),
+    folder.path
+      ? h(
+          "dl",
+          { class: "kv" },
+          h("dt", {}, "In use"),
+          h("dd", { class: "path selectable", dataset: { fk: "game-folder-path" } }, folder.path),
+          h("dt", {}, "How"),
+          h("dd", {}, GAME_FOLDER_SOURCE[folder.source] ?? "—"),
+        )
+      : h("div", { class: "callout bad", role: "status" }, icon("warn", 18, 2.6), h("span", {}, h("strong", {}, "Borderlands 2 wasn't found."), " Choose its folder: browse to it, or paste its path.")),
+    folder.problem ? h("div", { class: "callout bad", role: "alert" }, icon("warn", 18, 2.6), h("span", {}, folder.problem)) : null,
+    input,
+    h(
+      "div",
+      { class: "button-row" },
+      h("button", { type: "button", class: "btn small", disabled: busy, dataset: { fk: "game-folder-browse" }, onClick: () => actions.browseGameFolder() }, "Browse…"),
+      use,
+      folder.source === "chosen"
+        ? h("button", { type: "button", class: "btn small", disabled: busy, dataset: { fk: "game-folder-auto" }, onClick: () => actions.findGameFolder() }, "Find it automatically")
+        : null,
+    ),
+    reading ? h("p", { class: "note dim", role: "status" }, `Reading item names from the game… ${state.status.itemData.percent ?? 0}%. The folder can be changed when that's done.`) : null,
+    form.error ? h("div", { class: "callout bad", role: "alert" }, icon("warn", 18, 2.6), h("span", {}, form.error)) : null,
+  );
 }
 
 /** Settings' Updates section: a check only when asked, then a way to the download page. */

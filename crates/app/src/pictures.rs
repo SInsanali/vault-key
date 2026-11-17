@@ -6,8 +6,25 @@
 //! fails, the failure is remembered and every later request is answered at once.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
+use gamedata::GameInstall;
 use gamemesh::{Facing, PictureError, Pictures, Style};
+
+/// The game folder pictures are drawn from, and how many times it has been set: the API
+/// sets it when it finds the game, and again when the user chooses another folder.
+static INSTALL: Mutex<(u64, Option<GameInstall>)> = Mutex::new((0, None));
+
+/// Draws pictures from this game folder from now on (`None`: the game was not found).
+pub fn use_install(install: Option<GameInstall>) {
+    let mut current = INSTALL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    current.0 += 1;
+    current.1 = install;
+}
+
+fn current_install() -> (u64, Option<GameInstall>) {
+    INSTALL.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+}
 
 /// Which way weapons point in every picture. Flip this one constant to compare with the
 /// game: neither facing is a mirror image, each shows a different side of the weapon.
@@ -165,22 +182,30 @@ impl PngCache {
 
 /// Answers picture requests. Owns the painter (opened on first use) and the PNG cache.
 pub struct Service {
+    /// For [`Service::live`]: which setting of the game folder it draws from.
+    generation: Option<u64>,
     opener: Option<Opener>,
     painter: Option<Result<Box<dyn Painter>, PictureError>>,
     cache: PngCache,
 }
 
 impl Service {
-    /// Draws from the installed game: found the same way the item catalog finds it, so
-    /// `GK_GAME_DATA` is honoured.
+    /// Draws from the game folder the item catalog uses (see [`use_install`]).
     pub fn live() -> Self {
-        Self::new(Box::new(|| {
-            let install = gkcore::catalog::locate_install()
-                .ok_or_else(|| PictureError::GameData("Borderlands 2 was not found".to_string()))?;
+        let (generation, install) = current_install();
+        let mut service = Self::new(Box::new(move || {
+            let install = install.ok_or_else(|| PictureError::GameData("Borderlands 2 was not found".to_string()))?;
             let mut pictures = Pictures::open(&install)?;
             pictures.set_style(Style { facing: FACING, ..Style::default() });
             Ok(Box::new(pictures) as Box<dyn Painter>)
-        }))
+        }));
+        service.generation = Some(generation);
+        service
+    }
+
+    /// False for a live service once the game folder has been set again since it started.
+    pub fn is_current(&self) -> bool {
+        self.generation.is_none_or(|generation| generation == current_install().0)
     }
 
     pub fn new(opener: Opener) -> Self {
@@ -188,7 +213,7 @@ impl Service {
     }
 
     pub fn with_limit(opener: Opener, cache_bytes: usize) -> Self {
-        Self { opener: Some(opener), painter: None, cache: PngCache { entries: HashMap::new(), bytes: 0, limit: cache_bytes, clock: 0 } }
+        Self { generation: None, opener: Some(opener), painter: None, cache: PngCache { entries: HashMap::new(), bytes: 0, limit: cache_bytes, clock: 0 } }
     }
 
     /// Bytes of finished PNGs held right now.

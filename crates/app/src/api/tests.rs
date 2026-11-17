@@ -832,3 +832,46 @@ fn an_item_is_levelled_moved_to_the_bank_and_ammo_upgraded_then_saved() {
     assert_eq!(in_bank[0].fields.as_ref().unwrap().grade_index, Some(33));
     assert_eq!(saved.ammo_levels()[5], 2);
 }
+
+#[test]
+fn the_game_folder_can_be_chosen_pasted_and_forgotten() {
+    let mut world = World::new();
+    // A folder that looks like the game: <temp>/Games/Borderlands 2/WillowGame/CookedPCConsole/Startup.upk.
+    let game = world.temp.path().join("Games").join("Borderlands 2");
+    let cooked = game.join("WillowGame").join("CookedPCConsole");
+    fs::create_dir_all(&cooked).unwrap();
+    fs::write(cooked.join("Startup.upk"), b"not really").unwrap();
+    let settings = world.temp.path().join("VaultKey").join("settings.txt");
+
+    // Pasted with the quotes "Copy as path" adds, and one folder too deep: the game's own
+    // folder is what is kept.
+    let pasted = format!("  \"{}\" ", game.join("WillowGame").display());
+    let status = world.ok("set_game_folder", json!({ "path": pasted }));
+    assert_eq!(status["gameFolder"]["path"], json!(game.display().to_string()));
+    assert_eq!(status["gameFolder"]["source"], json!("chosen"));
+    assert_eq!(status["gameFolder"]["problem"], Value::Null);
+    let text = fs::read_to_string(&settings).unwrap();
+    assert!(text.contains(&format!("game-folder {}\n", game.display())), "{text}");
+
+    // A folder without the game, or nothing, is refused and changes nothing.
+    let refused = world.err("set_game_folder", json!({ "path": world.temp.path().join("Elsewhere").display().to_string() }));
+    assert!(refused.contains("isn't in"), "{refused}");
+    assert!(world.err("set_game_folder", json!({ "path": "  " })).contains("Paste"));
+    assert!(world.err("set_game_folder", json!({ "path": "Games\\Borderlands 2" })).contains("isn't in"));
+    assert_eq!(fs::read_to_string(&settings).unwrap(), text);
+    assert_eq!(world.ok("status", json!({}))["gameFolder"]["source"], json!("chosen"));
+
+    // Forgotten: the game is looked for as usual (it may or may not be on this PC).
+    let status = world.ok("clear_game_folder", json!({}));
+    assert_ne!(status["gameFolder"]["source"], json!("chosen"));
+    assert!(!fs::read_to_string(&settings).unwrap().contains("game-folder"));
+}
+
+#[test]
+fn the_game_folder_is_not_changed_while_item_data_is_read() {
+    let mut world = World::new();
+    let (_sender, result) = mpsc::channel();
+    world.api.expect_item_data(result, Arc::new(AtomicU32::new(10)));
+    assert!(world.err("set_game_folder", json!({ "path": "C:\\Games" })).contains("still reading"));
+    assert!(world.err("clear_game_folder", json!({})).contains("still reading"));
+}

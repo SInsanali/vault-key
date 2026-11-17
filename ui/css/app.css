@@ -847,6 +847,8 @@ button.eq-chip:hover { background: var(--card-lift); }
 .sheet-actions .link { margin-right: auto; }
 .sheet-section { display: flex; flex-direction: column; gap: 10px; }
 .button-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.input.path-input { min-height: 40px; font: 400 14px/1.2 Consolas, "Courier New", monospace; letter-spacing: 0; padding: 0 10px; }
+.input.path-input::placeholder { color: var(--text-faint); }
 
 /* The list grows with what is in it, up to about half the window; past that it scrolls. */
 .changes { display: flex; flex-direction: column; border: 3px solid var(--ink); max-height: min(50vh, 560px); overflow-y: auto; }

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Settings has a Game folder section. It shows the Borderlands 2 folder item names and pictures come from, and whether it was found automatically. If the game isn't found, or you want another copy, browse to its folder or paste its path; any folder in or around the game works. "Find it automatically" goes back to looking by itself. This replaces setting the GK_GAME_DATA environment variable.
+
 ## 0.9.1 - 2026-11-14
 
 - Shields, grenade mods and class mods are drawn in their own colours. Before, most came out washed-out white or grey, and some had a false purple tint or glitter.
