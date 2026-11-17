@@ -148,7 +148,7 @@ impl ProtoMessage {
         Ok(ProtoMessage { fields })
     }
 
-    /// Serialises the fields in the order they are held, with minimal varints.
+    /// Serializes the fields in the order they are held, with minimal varints.
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         for field in &self.fields {

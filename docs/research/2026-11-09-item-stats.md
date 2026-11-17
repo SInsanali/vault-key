@@ -83,10 +83,10 @@ Every tunable number is a struct of four fields: `BaseValueConstant`, `BaseValue
 
 | Fact | How checked |
 |---|---|
-| The struct has exactly these four fields, with these defaults | Probe: the `ScriptStruct`'s properties and its serialised defaults in `Engine.upk` |
+| The struct has exactly these four fields, with these defaults | Probe: the `ScriptStruct`'s properties and its serialized defaults in `Engine.upk` |
 | A struct that is a top-level property stores only the fields that differ from the *class default's* struct; inside an array every field is written | Probe: dumps (a weapon type's `InstantHitDamage` has two fields; array elements have all four) |
 | **The attribute replaces the constant; it is not added.** Formulas keep stale constants beside attributes: the shield capacity formula's `Level` has constant 85 *and* the attribute for 1.13, its `Power` constant 1 *and* the item-level attribute. Adding would give 86.13^(level+1) | Probe dump of `Init_ShieldItem_CapacityMaxValue`. Same conclusion as the rarity work (windows doc §6.3) |
-| Evaluation order adopted: (attribute, else constant) → initialisation definition, if any → × scale | *Assumed* from the field names; consistent with §7.2 (the damage scale 1.08 … 4.0 multiplies the formula's result) |
+| Evaluation order adopted: (attribute, else constant) → initialization definition, if any → × scale | *Assumed* from the field names; consistent with §7.2 (the damage scale 1.08 … 4.0 multiplies the formula's result) |
 
 ### 2.3 `AttributeInitializationDefinition`: the level formula
 
@@ -98,7 +98,7 @@ Every tunable number is a struct of four fields: `BaseValueConstant`, `BaseValue
 | **Weapon damage: `Init_WeaponDamage` = 8 × 1.13 ^ level.** `Multiplier` 8, `Level` = `Att_UniversalBalanceScaler` (a constant resolver: **1.13**), `Power` = `D_Attributes.Weapon.WeaponLevel` (the weapon's `ExpLevel`), no offset | Test `stat_data_shape` |
 | Its `MinValue` of 5 is stated but its restriction flag is off | Same test |
 | Every one of the 33 base weapon types uses `Init_WeaponDamage` for `InstantHitDamage` (times a per-type scale, 0.75 … 35) and for `StatusEffectDamage` (scale 1) | Probe census |
-| Of 147 initialisation definitions in `Startup.upk`: 107 use the formula, 39 conditional initialisation (7 of them in offset-by-base mode), 1 random variance | Probe census. The crate evaluates the formula with the sets / adds / scales modes; the rest make a value unknown |
+| Of 147 initialization definitions in `Startup.upk`: 107 use the formula, 39 conditional initialization (7 of them in offset-by-base mode), 1 random variance | Probe census. The crate evaluates the formula with the sets / adds / scales modes; the rest make a value unknown |
 
 So a weapon's base damage is `8 × 1.13^level × (type scale)`. Sam's "about 1.13 per level" is exact.
 
@@ -148,10 +148,10 @@ weapons have zoom variants that apply only while aiming.
 
 | Fact | How checked |
 |---|---|
-| In the base game, a weapon effect's value is always a constant, or `Weapon_Is_<maker>` × a scale. No effect uses an initialisation definition | Probe census over 1,508 weapon parts and 33 types |
+| In the base game, a weapon effect's value is always a constant, or `Weapon_Is_<maker>` × a scale. No effect uses an initialization definition | Probe census over 1,508 weapon parts and 33 types |
 | What parts modify, by count: damage scale (113), magazine pre-add (79), shot cost pre-add (42), spread pre-add (38), reload scale (38), projectiles pre-add (33), status chance scale (30), …; one post-add among all weapon effects (the Infinity's magazine) | Same |
 | Example: the Jakobs assault-rifle grip has reload scale `Weapon_Is_Jakobs × −0.3`, magazine pre-add `Weapon_Is_Jakobs × 2`: nothing on a gun of another maker | Probe dump |
-| All 342 attributes that some definition modifies exist in the packages as attribute definitions; all 28 attributes and 37 initialisation definitions used as values were found | Test `referenced_attributes_resolve` |
+| All 342 attributes that some definition modifies exist in the packages as attribute definitions; all 28 attributes and 37 initialization definitions used as values were found | Test `referenced_attributes_resolve` |
 
 ### 2.7 Attribute slots (the "grade" system)
 
@@ -292,7 +292,7 @@ So a non-elemental gun shows five rows, a fire, corrosive or shock gun seven, a 
 ### 5.4 Other text on the card
 
 `CustomPresentations` on types and parts are extra lines. An entry with no attribute and
-`bDontDisplayNumber` is fixed text: red flavour text (`TextColor` #DC4646, priority 20, on title
+`bDontDisplayNumber` is fixed text: red flavor text (`TextColor` #DC4646, priority 20, on title
 parts), "Sustained fire increases accuracy." (Hyperion types), and so on. Of 851 such objects in
 `Startup.upk`, 548 are localisation keys (`$WillowGame.…`, mostly skin descriptions), 273 are
 literal text and 30 show a number (probe census).
@@ -401,7 +401,7 @@ What the search shows:
   read as "13", then as "31". No part combination of the common Bandit pistol gives either.
 
 Do the cards include the player's own bonuses (Badass Rank, skills)? The script caches the card
-when the weapon is initialised (`InitializeInternal` → `CacheWeaponCard`, native), before the
+when the weapon is initialized (`InitializeInternal` → `CacheWeaponCard`, native), before the
 weapon has an owner; whether native code refreshes it later was not determined. The Badass Rank
 skill does modify weapon attributes such as the fire interval (`GD_Challenges.BadassSkill`), so
 a card that showed live values would move with it. The Convergence and the Phobia are equipped
@@ -476,23 +476,23 @@ anything** (§12).
 ## 10. Grenade mods, class mods and relics
 
 Done in §14. What this section listed as missing (the item contexts, the slot-grade resolver,
-the modifier-text rules, conditional initialisation for skill points) is now in the crate.
+the modifier-text rules, conditional initialization for skill points) is now in the crate.
 
 ## 11. Implementation (`crates/gamedata`)
 
 - **Extraction** (`extract/stats.rs`): for every type and part in the asset tables, its effects,
   slot effects and upgrades, `UIStatList`, damage type, fixed text, and for weapon types the
-  base values; then every attribute and initialisation definition those use as values, followed
+  base values; then every attribute and initialization definition those use as values, followed
   recursively; then the presentation lists, filtered to attributes some card shows. Anything
   unreadable is recorded on the definition and makes the numbers that depend on it unknown.
 - **Database**: `ItemDatabase::stat_data` (a `StatsData`): 4,501 definitions, 346 attributes, 45
-  initialisation definitions, 7 presentation lists (160 default entries), the damage types'
+  initialization definitions, 7 presentation lists (160 default entries), the damage types'
   lines. The cache schema is now **4** (3 added the stat data, 4 the lines); the cache file is
   about 2.3 MB. An older cache is rebuilt (the schema is part of the fingerprint).
 - **Calculation** (`database/stats.rs`): `ItemDatabase::stats(&ItemRefs, ItemLevel) -> ItemStats`
   and `stats_with(…, DlcResolution)`. A row is `Computed { value, display, supplement,
   approximate }` or `Unknown { reason }`; `lines` holds every line below the rows (`CardLine`:
-  kind, text, note, attribute, colour, priority). DLC-set items are unavailable under the
+  kind, text, note, attribute, color, priority). DLC-set items are unavailable under the
   current `DLC_RESOLUTION`, like names.
 - Hard-coded class defaults (ten numbers from `Default__WeaponTypeDefinition`, one from
   `Default__WillowWeapon`, two from `Default__AttributePresentationDefinition`, the slot limit)
@@ -525,7 +525,7 @@ the modifier-text rules, conditional initialisation for skill points) is now in 
   DLC parts use the same structures; 23 odd pairings give a non-positive fire interval.
 - Parts whose definitions live in level packages (the 102 unlocated base weapon-part entries):
   a weapon with one has every row unknown.
-- Effects applied by behaviours at run time (a Fibber barrel's `Behavior_AttributeEffect`, skill
+- Effects applied by behaviors at run time (a Fibber barrel's `Behavior_AttributeEffect`, skill
   effects of unique guns, anything that changes while firing) are not on the static card here;
   whether the game's card includes any of them was not checked.
 - The line rules of §14.2 beyond the Phobia's five lines (§14.3); every grenade mod, class mod

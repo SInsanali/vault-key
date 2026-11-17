@@ -2,7 +2,7 @@
 # Build Vault Key, put WebView2Loader.dll beside the program, and start it.
 #
 #   scripts/app              build (debug) and run
-#   scripts/app --release    build optimised and run
+#   scripts/app --release    build optimized and run
 #   scripts/app --build-only [--release]   build and stop; prints the program's path
 #
 # These variables are passed through to the app when set:

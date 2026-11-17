@@ -20,7 +20,7 @@ pub fn encode_rgba(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     let mut header = Vec::with_capacity(13);
     header.extend(width.to_be_bytes());
     header.extend(height.to_be_bytes());
-    header.extend([8, 6, 0, 0, 0]); // 8 bits, colour type 6 (RGBA), deflate, adaptive filters, no interlace
+    header.extend([8, 6, 0, 0, 0]); // 8 bits, color type 6 (RGBA), deflate, adaptive filters, no interlace
     chunk(&mut out, b"IHDR", &header);
     chunk(&mut out, b"IDAT", &z);
     chunk(&mut out, b"IEND", &[]);

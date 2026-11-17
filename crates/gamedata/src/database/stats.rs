@@ -10,7 +10,7 @@
 //!
 //! The calculation, for a weapon:
 //! 1. Base values come from the weapon type (`WillowWeapon.CalculateWeaponBaseValues`): damage
-//!    from an initialisation formula of the level, the rest plain numbers.
+//!    from an initialization formula of the level, the rest plain numbers.
 //! 2. Modifiers are collected from the type's and every part's attribute effects, then from the
 //!    type's slot effects at the grade the parts give each slot.
 //! 3. An attribute's value is `(base + Σ pre-add) × (1 + Σ positive scale) ÷
@@ -220,7 +220,7 @@ impl StatRow {
 /// What kind of line a [`CardLine`] is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CardLineKind {
-    /// Fixed text (red flavour text, "Sustained fire increases accuracy.").
+    /// Fixed text (red flavor text, "Sustained fire increases accuracy.").
     Text,
     /// A line the card composes from a number ("+8% Critical Hit Damage", "Consumes 2 ammo per
     /// shot.", "+4 Immolate Skill").
@@ -238,8 +238,8 @@ pub struct CardLine {
     pub note: Option<String>,
     /// The attribute a bonus line is about.
     pub attribute: Option<String>,
-    /// The line's colour when the game sets one (red text, elemental lines); `None` for the
-    /// card's plain colour.
+    /// The line's color when the game sets one (red text, elemental lines); `None` for the
+    /// card's plain color.
     pub color: Option<Rgba>,
     /// The priority the card orders lines by, highest first.
     pub priority: f32,
@@ -253,7 +253,7 @@ pub struct ItemStats {
     pub unavailable: Option<String>,
     /// The card's top-section rows, in the game's order.
     pub rows: Vec<StatRow>,
-    /// Fixed text lines of the card (red flavour text and the like), highest priority first.
+    /// Fixed text lines of the card (red flavor text and the like), highest priority first.
     /// The same lines appear in `lines` with [`CardLineKind::Text`]; this list is kept for
     /// callers of the first version.
     pub texts: Vec<CardText>,
@@ -429,7 +429,7 @@ impl<'a> Card<'a> {
     }
 
     /// Evaluates an `AttributeInitializationData`: the attribute's value in place of the
-    /// constant when one is named, passed through the initialisation definition when one is
+    /// constant when one is named, passed through the initialization definition when one is
     /// named, times the scale.
     fn value(&self, data: &ValueData) -> Val {
         self.guarded(|| {
@@ -442,7 +442,7 @@ impl<'a> Card<'a> {
                 Some(path) => {
                     let definition = self.data.initializations.get(path).ok_or_else(|| {
                         format!(
-                            "initialisation definition {} is not in the database",
+                            "initialization definition {} is not in the database",
                             short(path)
                         )
                     })?;
@@ -462,7 +462,7 @@ impl<'a> Card<'a> {
     fn initialize(&self, definition: &Initialization, path: &str, base: impl Fn() -> Val) -> Val {
         if let Some(what) = &definition.unsupported {
             return Err(format!(
-                "{} uses {what}, which is not modelled",
+                "{} uses {what}, which is not modeled",
                 short(path)
             ));
         }
@@ -500,7 +500,7 @@ impl<'a> Card<'a> {
             BaseValueMode::Scales => base()?.map2(value, |b, v| b * v),
             BaseValueMode::OffsetBy => {
                 return Err(format!(
-                    "{} offsets its base value, which is not modelled",
+                    "{} offsets its base value, which is not modeled",
                     short(path)
                 ));
             }
@@ -601,7 +601,7 @@ impl<'a> Card<'a> {
                     Ok(self.value(left)?.map2(self.value(right)?, |a, b| a * b))
                 }
                 AttributeSource::Unsupported(what) => Err(format!(
-                    "{} is resolved by {what}, which is not modelled",
+                    "{} is resolved by {what}, which is not modeled",
                     short(path)
                 )),
             }
@@ -614,7 +614,7 @@ impl<'a> Card<'a> {
             Some(Base::Number(value)) => Ok(Num::exact(*value)),
             Some(Base::Data(data)) => self.value(data),
             Some(Base::Unknown(reason)) => Err(reason.clone()),
-            None => Err(format!("the item's {name} is not modelled")),
+            None => Err(format!("the item's {name} is not modeled")),
         }
     }
 
@@ -752,7 +752,7 @@ impl<'a> Card<'a> {
             )
         } else if on_boundary {
             Some(
-                "the value lies on a rounding boundary; the card may show the neighbouring value"
+                "the value lies on a rounding boundary; the card may show the neighboring value"
                     .to_string(),
             )
         } else {
@@ -1060,7 +1060,7 @@ impl<'a> Card<'a> {
             )
         } else if on_boundary {
             Some(
-                "the value lies on a rounding boundary; the card may show the neighbouring value"
+                "the value lies on a rounding boundary; the card may show the neighboring value"
                     .into(),
             )
         } else {
@@ -2407,7 +2407,7 @@ mod tests {
         let rows = texts(&stats);
         assert_eq!(
             rows[3],
-            "?Unsupported is resolved by value resolver WeirdResolver, which is not modelled"
+            "?Unsupported is resolved by value resolver WeirdResolver, which is not modeled"
         );
         assert_eq!(rows[4], "20");
         // No manufacturer: the grip's conditional effect cannot be evaluated.

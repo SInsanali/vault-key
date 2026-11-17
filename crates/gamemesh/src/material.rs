@@ -1,5 +1,5 @@
 //! Weapon materials: the parameters of a `MaterialInstanceConstant` chain, and an experimental
-//! shader that colours a weapon from them.
+//! shader that colors a weapon from them.
 //!
 //! What is read from the data is solid (parameter names and values, which textures, which
 //! channel). How the game's shader combines them is NOT in the cooked packages (the material
@@ -148,37 +148,37 @@ impl MaterialParameters {
     }
 }
 
-/// How a layer's texture is read: as a colour, or one channel as a grey mask. From the
-/// static mask `p_PatternChannel` / `p_DecalChannel`: all three colour channels on means
-/// colour, otherwise the first channel that is on.
+/// How a layer's texture is read: as a color, or one channel as a gray mask. From the
+/// static mask `p_PatternChannel` / `p_DecalChannel`: all three color channels on means
+/// color, otherwise the first channel that is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayerChannel {
-    Colour,
-    Grey(usize),
+    Color,
+    Gray(usize),
 }
 
 impl LayerChannel {
-    /// `unset` is what a material without the static mask gets: gun patterns are colour
+    /// `unset` is what a material without the static mask gets: gun patterns are color
     /// images (Jakobs wood, Bandit paint), item patterns are packed `_Comp` masks whose red
-    /// channel holds the pattern (read as colour, their blue and green turn it to glitter).
+    /// channel holds the pattern (read as color, their blue and green turn it to glitter).
     fn from_mask(mask: Option<[bool; 4]>, unset: Self) -> Self {
         match mask {
             None => unset,
-            Some([true, true, true, _]) => Self::Colour,
-            Some(mask) => Self::Grey(mask.iter().position(|&on| on).unwrap_or(0)),
+            Some([true, true, true, _]) => Self::Color,
+            Some(mask) => Self::Gray(mask.iter().position(|&on| on).unwrap_or(0)),
         }
     }
 
     fn read(self, texel: [f32; 4]) -> [f32; 3] {
         match self {
-            Self::Colour => [texel[0], texel[1], texel[2]],
-            Self::Grey(channel) => [texel[channel.min(3)]; 3],
+            Self::Color => [texel[0], texel[1], texel[2]],
+            Self::Gray(channel) => [texel[channel.min(3)]; 3],
         }
     }
 }
 
 /// The pattern layer (`p_Pattern`): a texture tiled over the weapon's side projection
-/// (texture-coordinate set 1), laid onto each colour zone by its own strength.
+/// (texture-coordinate set 1), laid onto each color zone by its own strength.
 pub struct Pattern {
     pixels: Arc<Pixels>,
     channel: LayerChannel,
@@ -187,26 +187,26 @@ pub struct Pattern {
     offset: [f32; 2],
     /// `p_PatternChannelScale`: how much of the pattern zones A, B, C and the rest take.
     strength: [f32; 4],
-    /// `p_PatternColor`: the colour a grey-mask pattern is drawn in.
-    colour: [f32; 3],
-    /// `p_ReplacePattern`: the pattern replaces the zone colour instead of multiplying it.
+    /// `p_PatternColor`: the color a gray-mask pattern is drawn in.
+    color: [f32; 3],
+    /// `p_ReplacePattern`: the pattern replaces the zone color instead of multiplying it.
     replace: bool,
 }
 
 impl Pattern {
-    /// The pattern's colour at a point, and how much of it each zone takes (zero everywhere
+    /// The pattern's color at a point, and how much of it each zone takes (zero everywhere
     /// when the material has no pattern layer).
     fn at(&self, uv1: [f32; 2]) -> [f32; 3] {
         let u = uv1[0] * self.scale[0] + self.offset[0];
         let v = uv1[1] * self.scale[1] + self.offset[1];
         let texel = self.pixels.sample_linear(u, v).map(|c| c / 255.0);
-        // `p_PatternColor` colours a grey mask; a full-colour pattern brings its own colours
+        // `p_PatternColor` colors a gray mask; a full-color pattern brings its own colors
         // (with the multiplier, Jakobs wood and Vladof metal come out pale and wrong).
         match self.channel {
-            LayerChannel::Colour => self.channel.read(texel),
-            LayerChannel::Grey(_) => {
+            LayerChannel::Color => self.channel.read(texel),
+            LayerChannel::Gray(_) => {
                 let c = self.channel.read(texel);
-                [c[0] * self.colour[0], c[1] * self.colour[1], c[2] * self.colour[2]]
+                [c[0] * self.color[0], c[1] * self.color[1], c[2] * self.color[2]]
             }
         }
     }
@@ -228,10 +228,10 @@ pub struct Decal {
     /// `p_DecalScalePosition`: scale in x and y, then an offset, applied to coordinate set 1.
     scale: [f32; 2],
     offset: [f32; 2],
-    /// `p_DecalColor`; with `p_UseFullColorDecal` a multiplier on the image, else the colour
+    /// `p_DecalColor`; with `p_UseFullColorDecal` a multiplier on the image, else the color
     /// the mask is drawn in.
-    colour: [f32; 3],
-    full_colour: bool,
+    color: [f32; 3],
+    full_color: bool,
     /// `p_ReplaceDecal`, read as how opaque the decal is.
     opacity: f32,
     /// `sw_FlipDecalOnRightSide`: mirror the decal on the +X side so it reads correctly.
@@ -239,7 +239,7 @@ pub struct Decal {
 }
 
 impl Decal {
-    /// The decal's colour and coverage at a point, or none outside the decal's square.
+    /// The decal's color and coverage at a point, or none outside the decal's square.
     fn at(&self, uv1: [f32; 2], normal_x: f32) -> Option<([f32; 3], f32)> {
         let mut u = uv1[0] * self.scale[0] + self.offset[0];
         let v = uv1[1] * self.scale[1] + self.offset[1];
@@ -250,20 +250,20 @@ impl Decal {
             return None;
         }
         let texel = self.pixels.sample_linear(u, v).map(|c| c / 255.0);
-        let (colour, coverage) = match self.channel {
-            LayerChannel::Colour if self.full_colour => ([texel[0] * self.colour[0], texel[1] * self.colour[1], texel[2] * self.colour[2]], texel[3]),
-            channel => (self.colour, channel.read(texel)[0]),
+        let (color, coverage) = match self.channel {
+            LayerChannel::Color if self.full_color => ([texel[0] * self.color[0], texel[1] * self.color[1], texel[2] * self.color[2]], texel[3]),
+            channel => (self.color, channel.read(texel)[0]),
         };
-        Some((colour, (coverage * self.opacity).clamp(0.0, 1.0)))
+        Some((color, (coverage * self.opacity).clamp(0.0, 1.0)))
     }
 }
 
 /// How much of the game's material [`GunSkin`] reproduces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkinDetail {
-    /// One flat colour per colour zone (the zone's midtone), plus light bands.
+    /// One flat color per color zone (the zone's midtone), plus light bands.
     Flat,
-    /// Zone colours shaped by the highlight and shadow masks and the greyscale diffuse.
+    /// Zone colors shaped by the highlight and shadow masks and the grayscale diffuse.
     Textured,
 }
 
@@ -271,20 +271,20 @@ pub enum SkinDetail {
 /// The game has one shader per family; the cooked packages keep only their parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkinFamily {
-    /// `Master_Gun`: the mask texture is two maps stacked, colour zones below and the
-    /// highlight and shadow masks above; `p_Diffuse` is a greyscale drawing shared by three
-    /// weapon classes, one per channel (`p_WeapClassSelect`); the fourth colour is `p_DColor`.
+    /// `Master_Gun`: the mask texture is two maps stacked, color zones below and the
+    /// highlight and shadow masks above; `p_Diffuse` is a grayscale drawing shared by three
+    /// weapon classes, one per channel (`p_WeapClassSelect`); the fourth color is `p_DColor`.
     Gun,
     /// `Master_ShieldGrenade` and the class mod masters: the two maps of the mask texture sit
-    /// side by side, highlight and shadow masks on the left, colour zones on the right;
-    /// `p_Diffuse` is an ordinary colour drawing of the whole layout; the fourth colour is
+    /// side by side, highlight and shadow masks on the left, color zones on the right;
+    /// `p_Diffuse` is an ordinary color drawing of the whole layout; the fourth color is
     /// `p_ColorD`.
     Item,
 }
 
 impl SkinFamily {
     /// The family of a material, from the master material its chain ends at. Anything not
-    /// recognised is read as a gun skin, as it always was.
+    /// recognized is read as a gun skin, as it always was.
     pub fn of(params: &MaterialParameters) -> Self {
         let master = params.chain.last().map(|m| m.to_ascii_lowercase()).unwrap_or_default();
         if master.ends_with(".master_shieldgrenade") || master.contains(".master_classmod") {
@@ -297,7 +297,7 @@ impl SkinFamily {
 
 /// An approximation of the game's weapon material.
 ///
-/// The mask texture (`p_Masks`) is two maps stacked: its lower half marks the three colour
+/// The mask texture (`p_Masks`) is two maps stacked: its lower half marks the three color
 /// zones A, B, C in red, green and blue; its upper half holds a highlight mask (red) and a
 /// shadow mask (green). Both are addressed by the first texture-coordinate set with v halved.
 /// The diffuse texture (`p_Diffuse`) is shared by three weapon classes, one per channel; the
@@ -310,7 +310,7 @@ pub struct GunSkin {
     diffuse_channel: usize,
     /// Zones A, B, C: highlight, midtone, shadow (linear RGB).
     zones: [[[f32; 3]; 3]; 3],
-    /// Colour where no zone is marked.
+    /// Color where no zone is marked.
     rest: [f32; 3],
     highlights: f32,
     shadows: f32,
@@ -341,14 +341,14 @@ impl GunSkin {
             channel: LayerChannel::from_mask(
                 params.channel_mask("p_PatternChannel"),
                 match SkinFamily::of(params) {
-                    SkinFamily::Gun => LayerChannel::Colour,
-                    SkinFamily::Item => LayerChannel::Grey(0),
+                    SkinFamily::Gun => LayerChannel::Color,
+                    SkinFamily::Item => LayerChannel::Gray(0),
                 },
             ),
             scale: [scale_position[0], scale_position[1]],
             offset: [scale_position[2], scale_position[3]],
             strength,
-            colour: params.vector("p_PatternColor").map_or([1.0; 3], |c| [c[0], c[1], c[2]].map(sane)),
+            color: params.vector("p_PatternColor").map_or([1.0; 3], |c| [c[0], c[1], c[2]].map(sane)),
             replace: params.scalar("p_ReplacePattern").unwrap_or(0.0) >= 0.5,
         });
         self
@@ -359,11 +359,11 @@ impl GunSkin {
         let scale_position = params.vector("p_DecalScalePosition").unwrap_or([1.0, 1.0, 0.0, 0.0]).map(sane_signed);
         self.decal = Some(Decal {
             pixels,
-            channel: LayerChannel::from_mask(params.channel_mask("p_DecalChannel"), LayerChannel::Colour),
+            channel: LayerChannel::from_mask(params.channel_mask("p_DecalChannel"), LayerChannel::Color),
             scale: [scale_position[0], scale_position[1]],
             offset: [scale_position[2], scale_position[3]],
-            colour: params.vector("p_DecalColor").map_or([1.0; 3], |c| [c[0], c[1], c[2]].map(sane)),
-            full_colour: params.scalar("p_UseFullColorDecal").unwrap_or(1.0) >= 0.5,
+            color: params.vector("p_DecalColor").map_or([1.0; 3], |c| [c[0], c[1], c[2]].map(sane)),
+            full_color: params.scalar("p_UseFullColorDecal").unwrap_or(1.0) >= 0.5,
             opacity: sane(params.scalar("p_ReplaceDecal").unwrap_or(1.0)),
             flip_on_right: params.channel_mask("sw_FlipDecalOnRightSide").is_some_and(|m| m[0]),
         });
@@ -423,7 +423,7 @@ fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * t)
 }
 
-/// Brings an over-bright colour into range without changing its hue. The data's colours are
+/// Brings an over-bright color into range without changing its hue. The data's colors are
 /// often above 1 (a white zone can be 1.8 or 3.4); the game's own exposure is not known, and
 /// letting them through washes the drawn lines out to plain white.
 fn fit(c: [f32; 3]) -> [f32; 3] {
@@ -460,7 +460,7 @@ impl Shader for GunSkin {
         let weights = [f32::from(zone_mask[0]), f32::from(zone_mask[1]), f32::from(zone_mask[2])].map(|w| w / 255.0);
         let marked = (weights[0] + weights[1] + weights[2]).max(1e-6);
         // How much of the zone's shadow and highlight tones show here.
-        let (mut shadow, mut highlight, mut grey) = (0.0, 0.0, 0.5);
+        let (mut shadow, mut highlight, mut gray) = (0.0, 0.0, 0.5);
         if self.detail == SkinDetail::Textured {
             // Kept half a texel inside its own map, so the other map never bleeds in.
             // (`half` is at most a quarter, so the bounds below are always in order.)
@@ -480,39 +480,39 @@ impl Shader for GunSkin {
             highlight = (detail[0] / 255.0).clamp(0.0, 1.0).powf(self.highlights.max(0.05));
             shadow = (detail[1] / 255.0).clamp(0.0, 1.0).powf(self.shadows.max(0.05));
             let texel = self.diffuse.sample_linear(u, v);
-            grey = match self.family {
+            gray = match self.family {
                 SkinFamily::Gun => texel[self.diffuse_channel.min(3)] / 255.0,
                 SkinFamily::Item => (0.2126 * texel[0] + 0.7152 * texel[1] + 0.0722 * texel[2]) / 255.0,
             };
         }
         let pattern = self.pattern.as_ref().map(|p| p.at(uv1));
-        // Each zone's colour: its tones, then its share of the pattern; then the zones are
-        // mixed by the zone map, and where little is marked the fourth colour shows.
-        let zone_colour = |zone: usize, tones: &[[f32; 3]; 3]| -> [f32; 3] {
+        // Each zone's color: its tones, then its share of the pattern; then the zones are
+        // mixed by the zone map, and where little is marked the fourth color shows.
+        let zone_color = |zone: usize, tones: &[[f32; 3]; 3]| -> [f32; 3] {
             let mut c = mix(mix(tones[1], tones[2], shadow), tones[0], highlight);
-            if let (Some(pattern), Some(colour)) = (&self.pattern, pattern) {
-                c = pattern.apply(zone, c, colour);
+            if let (Some(pattern), Some(color)) = (&self.pattern, pattern) {
+                c = pattern.apply(zone, c, color);
             }
             c
         };
-        let mut colour = [0.0; 3];
+        let mut color = [0.0; 3];
         for (zone, (tones, weight)) in self.zones.iter().zip(weights).enumerate() {
-            let c = zone_colour(zone, tones);
+            let c = zone_color(zone, tones);
             for i in 0..3 {
-                colour[i] += c[i] * weight / marked;
+                color[i] += c[i] * weight / marked;
             }
         }
-        let rest = zone_colour(3, &[self.rest; 3]);
-        let mut colour = fit(mix(rest, colour, marked.min(1.0)));
+        let rest = zone_color(3, &[self.rest; 3]);
+        let mut color = fit(mix(rest, color, marked.min(1.0)));
         if let Some((decal, coverage)) = self.decal.as_ref().and_then(|d| d.at(uv1, sample.normal[0])) {
-            colour = mix(colour, fit(decal), coverage);
+            color = mix(color, fit(decal), coverage);
         }
         if self.detail == SkinDetail::Textured {
-            // The greyscale drawing: mid grey leaves the colour nearly as it is.
-            colour = colour.map(|c| c * (0.30 + 1.25 * grey));
+            // The grayscale drawing: mid gray leaves the color nearly as it is.
+            color = color.map(|c| c * (0.30 + 1.25 * gray));
         }
         let lit = BAND_BRIGHTNESS[sample.band.min(2)];
-        to_srgb(colour.map(|c| c * lit * lit))
+        to_srgb(color.map(|c| c * lit * lit))
     }
 }
 
@@ -521,7 +521,7 @@ impl Shader for GunSkin {
 /// samples; this is the only texture in the relic package.
 pub const RELIC_TEXTURE: &str = "Item_Artifacts.Textures.ItemArtifacts_Comp";
 
-/// An approximation of the relic material: the whole relic glows in its type's colour.
+/// An approximation of the relic material: the whole relic glows in its type's color.
 ///
 /// What the data gives: the material is emissive, two-sided and drawn without the game's
 /// edge outlines; each relic kind's body part sets `p_EmissiveColor` (Tenacity green,
@@ -530,17 +530,17 @@ pub const RELIC_TEXTURE: &str = "Item_Artifacts.Textures.ItemArtifacts_Comp";
 /// (blue). It is tiled many times over the mesh. How they are combined is chosen by eye.
 pub struct RelicSkin {
     texture: Option<Arc<Pixels>>,
-    /// The glow colour, brought into range (linear RGB).
+    /// The glow color, brought into range (linear RGB).
     glow: [f32; 3],
 }
 
 impl RelicSkin {
-    /// The colour a relic glows when its parts set none: `Mat_ItemArtifact`'s own default.
+    /// The color a relic glows when its parts set none: `Mat_ItemArtifact`'s own default.
     pub const DEFAULT_GLOW: [f32; 3] = [0.077, 0.232, 1.0];
 
     pub fn new(glow: [f32; 3], texture: Option<Arc<Pixels>>) -> Self {
         let glow = fit(glow.map(sane));
-        // A colour with no light in it would draw a black relic; use the default instead.
+        // A color with no light in it would draw a black relic; use the default instead.
         let glow = if glow.iter().all(|&c| c < 0.01) { Self::DEFAULT_GLOW } else { glow };
         Self { texture, glow }
     }
@@ -556,9 +556,9 @@ impl Shader for RelicSkin {
             None => (0.6, 0.0, 0.0),
         };
         let glow = self.glow;
-        // A dark body in the glow colour, shaped by the drawn surface ...
+        // A dark body in the glow color, shaped by the drawn surface ...
         let body = glow.map(|c| c * (0.18 + 0.55 * surface));
-        // ... with its edges and glyphs lit: the glow colour, washed toward white where it
+        // ... with its edges and glyphs lit: the glow color, washed toward white where it
         // burns brightest, as the game's bloom does.
         let hot = glow.map(|c| c * 0.75 + 0.25);
         let lit = mix(mix(body, glow, edge * 0.7), hot, glyph);
@@ -619,42 +619,42 @@ mod tests {
     #[test]
     fn item_masks_sit_side_by_side_and_gun_masks_stacked() {
         let masks = halves(4, 4, |x, _| if x < 2 { [0, 255, 0, 255] } else { [255, 0, 0, 255] });
-        let grey = halves(2, 2, |_, _| [128, 128, 128, 255]);
-        let item = GunSkin::new(&params("Common_Materials.Items.Master_ShieldGrenade", "p_ColorD"), masks.clone(), grey.clone(), SkinDetail::Flat);
-        let gun = GunSkin::new(&params("Common_Materials.Weapons.Master_Gun", "p_DColor"), masks, grey, SkinDetail::Flat);
+        let gray = halves(2, 2, |_, _| [128, 128, 128, 255]);
+        let item = GunSkin::new(&params("Common_Materials.Items.Master_ShieldGrenade", "p_ColorD"), masks.clone(), gray.clone(), SkinDetail::Flat);
+        let gun = GunSkin::new(&params("Common_Materials.Weapons.Master_Gun", "p_DColor"), masks, gray, SkinDetail::Flat);
         assert_eq!(strongest(item.shade(&sample(0.25, 0.5))), 0, "item: zone A, red");
         assert_eq!(strongest(gun.shade(&sample(0.25, 0.5))), 2, "gun: zone B, blue");
     }
 
-    /// Where no zone is marked the fourth colour shows: `p_ColorD` on items, not white.
+    /// Where no zone is marked the fourth color shows: `p_ColorD` on items, not white.
     #[test]
-    fn items_take_their_fourth_colour_from_p_color_d() {
+    fn items_take_their_fourth_color_from_p_color_d() {
         let blank = halves(4, 4, |_, _| [0, 0, 0, 255]);
-        let grey = halves(2, 2, |_, _| [128, 128, 128, 255]);
-        let item = GunSkin::new(&params("Common_Materials.Items.Master_ShieldGrenade", "p_ColorD"), blank, grey, SkinDetail::Flat);
+        let gray = halves(2, 2, |_, _| [128, 128, 128, 255]);
+        let item = GunSkin::new(&params("Common_Materials.Items.Master_ShieldGrenade", "p_ColorD"), blank, gray, SkinDetail::Flat);
         let c = item.shade(&sample(0.3, 0.3));
         assert!(c[1] > 100 && c[0] < 20 && c[2] < 20, "{c:?}");
     }
 
     #[test]
-    fn item_patterns_without_a_channel_mask_are_read_as_grey() {
+    fn item_patterns_without_a_channel_mask_are_read_as_gray() {
         let mut p = params("Common_Materials.Items.Master_ShieldGrenade", "p_ColorD");
         p.vectors.insert("p_patternchannelscale".into(), [1.0, 0.0, 0.0, 0.0]);
         let pattern = halves(2, 2, |_, _| [200, 0, 255, 255]);
         let masks = halves(4, 4, |x, _| if x < 2 { [0, 0, 0, 255] } else { [255, 0, 0, 255] });
-        let grey = halves(2, 2, |_, _| [128, 128, 128, 255]);
-        // Zone A in white so the pattern's own colour would show if it were read as colour.
+        let gray = halves(2, 2, |_, _| [128, 128, 128, 255]);
+        // Zone A in white so the pattern's own color would show if it were read as color.
         for tone in ["hilight", "midtone", "shadow"] {
             p.vectors.insert(format!("p_acolor{tone}"), [1.0, 1.0, 1.0, 1.0]);
         }
-        let skin = GunSkin::new(&p, masks, grey, SkinDetail::Flat).with_pattern(&p, pattern);
+        let skin = GunSkin::new(&p, masks, gray, SkinDetail::Flat).with_pattern(&p, pattern);
         let c = skin.shade(&sample(0.25, 0.5));
-        // Grey: the red channel (200) as a grey mask, so no magenta cast.
+        // Gray: the red channel (200) as a gray mask, so no magenta cast.
         assert!(c[0].abs_diff(c[1]) < 3 && c[1].abs_diff(c[2]) < 3, "{c:?}");
     }
 
     #[test]
-    fn relics_glow_in_their_colour() {
+    fn relics_glow_in_their_color() {
         let green = RelicSkin::new([0.0, 1.0, 0.1], None);
         assert_eq!(strongest(green.shade(&sample(0.5, 0.5))), 1);
         // A black glow would draw a black relic: the material's default blue instead.

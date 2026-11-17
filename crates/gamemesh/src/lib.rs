@@ -1,7 +1,7 @@
 //! Weapon and item pictures from the user's own game install.
 //!
 //! Reads the game's "gestalt" meshes out of `Startup.upk` and each DLC's startup package
-//! (read-only), picks the pieces a saved weapon's or item's parts name, colours them from its
+//! (read-only), picks the pieces a saved weapon's or item's parts name, colors them from its
 //! own skin (the gun, item and relic materials each have their own layout), and draws them with
 //! a small software renderer. A class mod is one mesh with its own skin.
 //!
@@ -33,6 +33,6 @@ mod weapon;
 
 pub use error::MeshError;
 pub use gestalt::{Fragment, GestaltMesh};
-pub use pictures::{reduce_depth, Colouring, Facing, PictureError, Pictures, Style};
+pub use pictures::{reduce_depth, Coloring, Facing, PictureError, Pictures, Style};
 pub use skeletal::{Bone, Chunk, Section, SkeletalMesh, Vertex};
 pub use weapon::{fragment_names, Assembly, AssemblyPart, PartLook, WeaponSource, MATERIAL_SLOT, WEAPON_SLOTS};

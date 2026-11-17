@@ -50,13 +50,13 @@ for `appmanifest_49520.acf` (for the folder name) and then for the game folder i
 | The six README vectors resolve to the same paths, and back | Test `readme_vectors_resolve` |
 | Library shapes equal the Mac's (libs / entries / located / unresolved): weapon types 39/75/33/5, weapon parts 14/1508/1406/2, item types 103/916/698/1, item parts 6/930/857/0, manufacturers 2/18/18/0, balances 141/1373/1083/6 | Test `base_library_shapes` |
 | Every base library has fewer sublibraries than half its lib range (39 < 64, 14 < 32, 103 < 256, 6 < 32, 2 < 8, 141 < 512) | Same test |
-| All 16 known items (2 README codes, Basic Repeater, intro ECHO, 12 items from the main character) resolve to the same name, level, tier, colour, manufacturer, category and gear class as on the Mac | Test `known_items_match_expected`. The item codes were decoded to numbers with a throwaway script following `bl2-save-format.md` §6; the decoded README values match that doc's |
+| All 16 known items (2 README codes, Basic Repeater, intro ECHO, 12 items from the main character) resolve to the same name, level, tier, color, manufacturer, category and gear class as on the Mac | Test `known_items_match_expected`. The item codes were decoded to numbers with a throwaway script following `bl2-save-format.md` §6; the decoded README values match that doc's |
 | In the tables' located objects, part tables hold only `…PartDefinition` classes, balance tables only `…BalanceDefinition` classes, and item-type tables only the six item classes | Probe (class census) |
 | 7 base balances are `MissionWeaponBalanceDefinition` | Test `database_classifies_known_items` |
 
-`RarityLevelColors` on the Windows build (colour as `#RRGGBB`, then alpha):
+`RarityLevelColors` on the Windows build (color as `#RRGGBB`, then alpha):
 
-| Levels | Colour | Rating |
+| Levels | Color | Rating |
 |---|---|---|
 | 0 | #CDC1AF, 0 | Unknown |
 | 1 | #FFFFFF, 255 | Common |
@@ -77,14 +77,14 @@ for `appmanifest_49520.acf` (for the folder name) and then for the game folder i
 | 504 | #00FFFF, 0 | Unknown |
 | 506 | #F2FFA1, 255 | Rainbow |
 
-Checked by a probe dump of the table and by tests `rarity_values_and_colours` and
-`game_colour_table_edges`. Levels 11 and 505 have no row.
+Checked by a probe dump of the table and by tests `rarity_values_and_colors` and
+`game_color_table_edges`. Levels 11 and 505 have no row.
 
 ## 4. DLC folders and PackageIds
 
 `DLC\` has 24 folders. 21 have `Compat\Content\<Name>_Startup_SF.upk` and
 `Compat\Config\WillowDlc.ini`. The other three, `POCollectors`, `POGamestop` and `POPremierClub`,
-have only a `Lic` folder (a `WillowDLC.ini` with a `[PromotionalUnlocks]` section, and licences).
+have only a `Lic` folder (a `WillowDLC.ini` with a `[PromotionalUnlocks]` section, and licenses).
 
 The first `+PackageId=` line of each ini (test `dlc_sets_discovered`):
 
@@ -176,7 +176,7 @@ treated as a class mod. Test `dlc_item_type_classes`.
 Over every type and part in the 13 DLC sets that the base game does not also list (test
 `dlc_rarity_census`):
 
-| Value | Objects | Colour row | Carried by |
+| Value | Objects | Color row | Carried by |
 |---|---|---|---|
 | 1 | 105 | #FFFFFF Common | customization types and parts |
 | 2 | 97 | #3DD20B Uncommon | same |
@@ -193,7 +193,7 @@ Over every type and part in the 13 DLC sets that the base game does not also lis
 | 504 | 1 | #00FFFF | Iris shield-booster pickup |
 | 506 | 9 | #F2FFA1 Rainbow | Anemone bodies, shield materials, two skins |
 
-- **No value falls outside the colour table or in its filler row**, and no DLC rarity struct is
+- **No value falls outside the color table or in its filler row**, and no DLC rarity struct is
   unresolvable.
 - **Seraph is 501.** Seraph items carry 501 directly. Seraph weapons reach it by sum: the barrel
   carries 497 and the body is a very-rare one (4). The Devastator's balance, for example, has
@@ -204,7 +204,7 @@ Over every type and part in the 13 DLC sets that the base game does not also lis
   have held. The link is one step away: 20 weapon part lists in those two packages allow a 500
   body; each allows only 500 bodies, its barrels carry no rarity, and every title those barrels
   list is a `Title_Pearlescent_…` name part. All 12 bodies are used that way. So level 500 is
-  labelled pearlescent. (Gladiolus's tables also list a 13th title, `Title_Pearlescent_Wolverine`,
+  labeled pearlescent. (Gladiolus's tables also list a 13th title, `Title_Pearlescent_Wolverine`,
   that no part list uses.)
 - **Rainbow (effervescent) is 506**, directly or as a 502 barrel plus a very-rare body.
 
@@ -223,7 +223,7 @@ is 506:
 | `GD_Runner_Items_Anemone.Runner.Skin_Effer` | 1 | 507 | 506 |
 
 Adding the two (the Swift rule, never exercised because the base game has no such struct) gives
-levels the colour table does not have. Taking the attribute alone gives the Rainbow row every
+levels the color table does not have. Taking the attribute alone gives the Rainbow row every
 time. The crate therefore reads the attribute as replacing the constant. Base-game values are
 unaffected (§6.1). Checked by test `dlc_rarity_census`. **Not confirmed in game.**
 
@@ -288,7 +288,7 @@ modification times are not compared, because NTFS refreshes them lazily when a f
 | Pearlescent label | only if every 500 object has `Pearl` in its path | no path has it; the label rests on the title link (§6.2) |
 
 The same on both: package version 832 and licensee 46; both compression layouts; the 11
-whole-file packages; `Startup.upk`'s table counts; the base library shapes; the colour rows the
+whole-file packages; `Startup.upk`'s table counts; the base library shapes; the color rows the
 Mac notes quote; the README vectors; the 16 known items; the 21 DLC startup packages and all 21
 `PackageId`s.
 
@@ -297,7 +297,7 @@ Mac notes quote; the README vectors; the 16 known items; the 21 DLC startup pack
 - H-set and H-flag (§7), and therefore every DLC item's name and rarity, against the game.
 - The attribute-replaces-constant rule (§6.3) in game.
 - That the game shows a 500 item as pearlescent, a 501 item as Seraph and a 506 item as rainbow.
-  The labels come from the data's own names; the colours from its table.
+  The labels come from the data's own names; the colors from its table.
 - The summing rule itself is still unconfirmed in game (spike §5). The DLC census adds evidence
   (497 + 4 = 501, 502 + 4 = 506) but no in-game comparison.
 - The fixture save `win-throwaway-Save0001.sav` was not decoded here (that needs `savekit`), so
@@ -313,9 +313,9 @@ Mac notes quote; the README vectors; the 16 known items; the 21 DLC startup pack
 with `savekit` and every item looked up. This closes the fifth bullet of §10 and adds real-save
 evidence for H-set and H-flag. It is still not an in-game comparison.
 
-**Base-game items (set 0): all five resolve to a name, maker, category and colour.**
+**Base-game items (set 0): all five resolve to a name, maker, category and color.**
 
-| Entry | Name | Maker | Category | Level → colour |
+| Entry | Name | Maker | Category | Level → color |
 |---|---|---|---|---|
 | weapon | Gearbox Rifle | Vladof | assault rifle | common, #FFFFFF |
 | weapon | Gearbox Projectile Convergence | Hyperion | SMG | common, #FFFFFF |
@@ -336,7 +336,7 @@ class from one DLC" is what a new character is given.
 
 What this does and does not show:
 - It supports H-set (set id = `PackageId`) and the DLC index split on real data.
-- It does not show a DLC *name* or *rarity colour* matching the game: these types carry no
+- It does not show a DLC *name* or *rarity color* matching the game: these types carry no
   `ItemName` in the startup package, so they have no display name here.
 - In-game check that would settle it: this character's backpack should show exactly six heads
   and six skins from the Tiny Tina DLC, one per class.

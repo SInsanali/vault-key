@@ -6,8 +6,8 @@
 
 ## 0.9.1 - 2026-11-14
 
-- Shields, grenade mods and class mods are drawn in their own colours. Before, most came out washed-out white or grey, and some had a false purple tint or glitter.
-- Relics glow in the colour of their kind (Tenacity green, Vitality red, Elemental purple, and so on) instead of plain gold.
+- Shields, grenade mods and class mods are drawn in their own colors. Before, most came out washed-out white or gray, and some had a false purple tint or glitter.
+- Relics glow in the color of their kind (Tenacity green, Vitality red, Elemental purple, and so on) instead of plain gold.
 - DLC weapons, shields, grenade mods, relics and class mods have pictures, Gaige's and Krieg's class mods among them.
 - Fine patterns, such as the carbon weave on rarer shields and grenades, no longer turn to glitter in small pictures.
 - Equipped gear is never saved above what the character can use (their level, plus Overpower at level 80). The game would take it off when it loads, so your equipped guns would end up in the backpack.

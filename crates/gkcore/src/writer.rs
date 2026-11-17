@@ -312,7 +312,7 @@ pub(crate) fn resolve_target(save_root: &Path, slot_id: &SlotId) -> Result<(Path
 
 /// Name of another save in `dir` that uses save-game ID `id`. Fails closed: an error if the
 /// folder cannot be listed or any other save cannot be decoded, since it might hold the ID.
-fn neighbour_using_id(dir: &Path, skip_file: &str, id: i64) -> Result<Option<String>> {
+fn neighbor_using_id(dir: &Path, skip_file: &str, id: i64) -> Result<Option<String>> {
     let Some(names) = library::save_file_names(dir) else {
         return fail(ErrorKind::IdCollision, format!("Cannot list {} to check save-game IDs.", dir.display()));
     };
@@ -394,7 +394,7 @@ fn check_recreated(req: &WriteRequest, dir: &Path, target: &Path, new: &SaveDocu
         return fail(ErrorKind::SlotTaken, format!("{} is there now. Nothing was changed.", req.slot_id.file_name()));
     }
     let id = new.save_game_id();
-    match neighbour_using_id(dir, req.slot_id.file_name(), id)? {
+    match neighbor_using_id(dir, req.slot_id.file_name(), id)? {
         Some(other) => Err(collision(&other, id)),
         None => Ok(()),
     }
@@ -468,7 +468,7 @@ pub(crate) fn safe_write(env: &WriteEnv, req: &WriteRequest, on_step: &mut dyn F
             let id = new.save_game_id();
             let same_id = SaveDocument::from_file_bytes(&on_disk).is_ok_and(|old| old.save_game_id() == id);
             if !same_id {
-                if let Some(other) = neighbour_using_id(&dir, req.slot_id.file_name(), id)? {
+                if let Some(other) = neighbor_using_id(&dir, req.slot_id.file_name(), id)? {
                     return Err(collision(&other, id));
                 }
             }
@@ -919,7 +919,7 @@ mod tests {
         assert!(error.message.contains("Save0004.sav already uses save-game ID 4"), "{}", error.message);
         assert_untouched(&world, "Save0003.sav", &original, &names);
 
-        // And with a neighbour that cannot be read, it cannot be ruled out, so: refused.
+        // And with a neighbor that cannot be read, it cannot be ruled out, so: refused.
         fs::write(world.dir.join("Save0004.sav"), b"not a save").unwrap();
         let error = run(&world, &req).0.unwrap_err();
         assert_eq!(error.kind, ErrorKind::IdCollision);
@@ -1204,7 +1204,7 @@ mod tests {
         assert_eq!(error.kind, ErrorKind::InvalidTarget);
         assert!(error.message.contains("exact copy of a Save0001.sav"), "{}", error.message);
 
-        // A neighbour that cannot be decoded might hold the ID.
+        // A neighbor that cannot be decoded might hold the ID.
         fs::write(world.dir.join("Save0007.sav"), b"not a save").unwrap();
         let slot = SlotId::for_slot(STEAM_ID, 3).unwrap();
         let payload = sample_bytes(3);

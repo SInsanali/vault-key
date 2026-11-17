@@ -96,13 +96,13 @@ impl Pkg {
         self.tag(name, "ArrayProperty", 0, &[], &value)
     }
 
-    /// A struct serialised as raw bytes (`LinearColor`, …).
+    /// A struct serialized as raw bytes (`LinearColor`, …).
     pub fn raw_struct(&mut self, name: &str, struct_name: &str, bytes: &[u8]) -> Vec<u8> {
         let struct_name = self.fname(struct_name);
         self.tag(name, "StructProperty", 0, &struct_name, bytes)
     }
 
-    /// A struct serialised as tagged properties.
+    /// A struct serialized as tagged properties.
     pub fn tagged_struct(&mut self, name: &str, struct_name: &str, tags: &[u8]) -> Vec<u8> {
         let value = [tags, &self.fname("None")].concat();
         self.raw_struct(name, struct_name, &value)

@@ -14,7 +14,7 @@ pub fn rgba(size: u32) -> Vec<u8> {
                     let px = (x as f32 + (sx as f32 + 0.5) / SAMPLES as f32) / size as f32;
                     let py = (y as f32 + (sy as f32 + 0.5) / SAMPLES as f32) / size as f32;
                     let [r, g, b, a] = sample(px, py);
-                    // Colours are weighted by coverage so transparent samples do not darken edges.
+                    // Colors are weighted by coverage so transparent samples do not darken edges.
                     sum[0] += r * a;
                     sum[1] += g * a;
                     sum[2] += b * a;
@@ -96,14 +96,14 @@ const INK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const YELLOW: [f32; 4] = [1.0, 0.78, 0.17, 1.0]; // #FFC72C
 const CLEAR: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
 
-/// True inside a square with rounded corners, centred in the unit square.
+/// True inside a square with rounded corners, centered in the unit square.
 fn rounded_square(x: f32, y: f32, half: f32, radius: f32) -> bool {
     let dx = ((x - 0.5).abs() - (half - radius)).max(0.0);
     let dy = ((y - 0.5).abs() - (half - radius)).max(0.0);
     (x - 0.5).abs() <= half && (y - 0.5).abs() <= half && dx * dx + dy * dy <= radius * radius
 }
 
-/// The colour at a point of the unit square.
+/// The color at a point of the unit square.
 fn sample(x: f32, y: f32) -> [f32; 4] {
     if !rounded_square(x, y, 0.47, 0.12) {
         return CLEAR;

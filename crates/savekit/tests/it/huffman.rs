@@ -41,7 +41,7 @@ fn tie_breaking_follows_the_reference() {
     assert_eq!(encode(b"abcd"), pack(&bits));
 }
 
-/// Appends a serialised leaf: the flag bit 1, then the byte, most significant bit first.
+/// Appends a serialized leaf: the flag bit 1, then the byte, most significant bit first.
 fn leaf(bits: &mut Vec<bool>, value: u8) {
     bits.push(true);
     bits.extend((0..8).rev().map(|i| (value >> i) & 1 == 1));

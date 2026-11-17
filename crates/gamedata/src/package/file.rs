@@ -31,7 +31,7 @@ pub(crate) fn file_name(path: &Path) -> String {
 /// Returns the uncompressed package for `raw`, whichever layout it uses. `name` only labels errors.
 ///
 /// Layout (a), whole-file compressed: chunk streams back to back until the end of the file. It is
-/// recognised by the u16 after the tag (where a package has its version) being below 500.
+/// recognized by the u16 after the tag (where a package has its version) being below 500.
 /// Layout (b): a normal header whose chunk table points at chunk streams. A package with an empty
 /// chunk table is returned unchanged.
 pub fn decompress(raw: &[u8], name: &str) -> Result<Vec<u8>> {
@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(u16::from_le_bytes([c[4], c[5]]), 0);
         assert!(decompress(&c, "t").unwrap() == p);
         // Smaller blocks, so each stream holds several. (The block size's low 16 bits must stay
-        // below 500, as the game's 0x20000 does: that is how the layout is recognised.)
+        // below 500, as the game's 0x20000 does: that is how the layout is recognized.)
         assert!(decompress(&whole_file_compressed(&p, 0x10000, 0x40000), "t").unwrap() == p);
     }
 

@@ -10,7 +10,7 @@ pub const PLAYTHROUGHS_COMPLETED: u32 = 7;
 pub const RESOURCES: u32 = 11;
 /// Message: backpack slots, weapon slots, weapon slots shown.
 pub const SIZES: u32 = 13;
-/// Message: name and colours.
+/// Message: name and colors.
 pub const APPEARANCE: u32 = 19;
 pub const SAVE_GAME_ID: u32 = 20;
 pub const UNLOCKS: u32 = 23;

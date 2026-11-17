@@ -5,7 +5,7 @@ use super::reader::ByteReader;
 use super::upackage::UPackage;
 use crate::error::{GameDataError, Result};
 
-/// Structs the engine serialises as raw bytes instead of tagged properties.
+/// Structs the engine serializes as raw bytes instead of tagged properties.
 const NATIVE_STRUCTS: &[&str] = &[
     "Color",
     "LinearColor",
@@ -34,7 +34,7 @@ pub enum PropertyValue {
     Str(String),
     /// An object reference (see [`UPackage`]).
     Object(i32),
-    /// A struct serialised as tagged properties.
+    /// A struct serialized as tagged properties.
     Struct(PropertyList),
     /// A native struct, or one whose bytes do not parse as tagged properties.
     StructRaw {
@@ -174,7 +174,7 @@ impl UPackage {
     }
 
     /// The tagged properties of export `index`, and the bytes that follow them in the export's
-    /// data: the class's own binary serialisation (mesh buffers, texture mips). Empty for the
+    /// data: the class's own binary serialization (mesh buffers, texture mips). Empty for the
     /// many classes that store nothing but properties.
     pub fn properties_and_native_data(&self, index: usize) -> Result<(PropertyList, &[u8])> {
         let e = self
@@ -228,7 +228,7 @@ impl UPackage {
         Ok(out)
     }
 
-    /// Decodes an array of structs, each serialised as tagged properties.
+    /// Decodes an array of structs, each serialized as tagged properties.
     pub fn struct_array(&self, value: &PropertyValue) -> Result<Vec<PropertyList>> {
         let (count, bytes) = array_parts(value)?;
         // Each element needs at least the 8-byte `None` name.

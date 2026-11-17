@@ -6,8 +6,8 @@ Key make such pictures from Sam's own installed game?
 **Answer: yes, feasible, for every base-game weapon.** The game has no ready-made picture of a
 weapon, but its 3D weapon models are in `Startup.upk`, the package the item database already
 reads. A prototype reads them, puts a saved weapon together from its own parts, and draws it with
-a software renderer in the app's comic style, in 25 ms (thumbnail) to 280 ms (1120×560) a picture. Colours come from the
-weapon's own skin. The limits: the colour formula is an approximation (the game's shader is not in
+a software renderer in the app's comic style, in 25 ms (thumbnail) to 280 ms (1120×560) a picture. Colors come from the
+weapon's own skin. The limits: the color formula is an approximation (the game's shader is not in
 the files), skin patterns and logos are not drawn, and DLC weapons were not rendered (they reuse
 the same meshes, so the gap is small).
 
@@ -79,7 +79,7 @@ properties of a `SkeletalMesh`:
 | Bounds: origin, box half-extent, sphere radius | 7 × f32 |
 | Materials: count, then object references (0 = set at run time; the weapon meshes have one null entry) | i32 + 4 each |
 | Origin (vector), rotation origin (rotator) | 12 + 12 |
-| Reference skeleton: count, then per bone: name (FName), flags u32, rotation quaternion 4 × f32, position 3 × f32, child count i32, parent index i32, colour u32 | i32 + 52 each |
+| Reference skeleton: count, then per bone: name (FName), flags u32, rotation quaternion 4 × f32, position 3 × f32, child count i32, parent index i32, color u32 | i32 + 52 each |
 | Skeletal depth | i32 |
 | LOD model count (1 in all 17 meshes) | i32 |
 | **LOD 0.** Sections: count, then material index u16, chunk index u16, first index u32, triangle count u32, sorting u8 | i32 + 13 each |
@@ -92,7 +92,7 @@ properties of a `SkeletalMesh`:
 | Texture-coordinate set count | i32 |
 | Vertex buffer: set count u32, full-precision flag u32, "packed position" flag u32, mesh extension 3 × f32, mesh origin 3 × f32, element size i32, count i32, vertices | |
 | **Vertex:** tangent (4 bytes), normal (4 bytes, each 0…255 → −1…1), 4 bone numbers (u8), 4 weights (u8), position 3 × f32, then per set a pair of half floats (or f32 with the full-precision flag) | 28 + 4 per set |
-| The rest (colour and influence buffers, name map, …; 60 to 512 bytes) | not read |
+| The rest (color and influence buffers, name map, …; 60 to 512 bytes) | not read |
 
 | Fact | How checked |
 |---|---|
@@ -117,7 +117,7 @@ page. The background is transparent (straight alpha). `gamemesh::png` writes 8-b
 with a filter chosen per row and real deflate compression (`gamemesh::deflate`, §11.3).
 
 Looked at (session scratchpad, default side view: the weapon's left side, muzzle to the left;
-composited over the app's page colour `#1B140D` unless named otherwise):
+composited over the app's page color `#1B140D` unless named otherwise):
 
 | Picture | What it shows |
 |---|---|
@@ -129,15 +129,15 @@ composited over the app's page colour `#1B140D` unless named otherwise):
 | `righteous-infinity-1120x560.png` and the other three without `-on-…` | The same on a transparent background, exactly what the app would get |
 | `righteous-infinity-1120x560-right-on-1b140d.png` | The other facing: the right side, muzzle to the right (§11.6) |
 | `righteous-infinity-1120x560-angled-on-1b140d.png` | Turned 28° and raised 14° |
-| `…-1120x560-flat-on-1b140d.png` (four) | Flat zone colours only, no drawn lines |
+| `…-1120x560-flat-on-1b140d.png` (four) | Flat zone colors only, no drawn lines |
 | `wt-torgue-assaultrifle-4-…`, `wt-maliwan-launcher-5-…` | Built from part paths: the two "washed out" skins of the spike, after the tone change (§11.7) |
-| `all-parts-gestaltdef-assaultrifle-on-1b140d.png` | All 47 assault-rifle fragments at once, one colour each: an unreadable pile of five rifles. This is what part selection removes |
+| `all-parts-gestaltdef-assaultrifle-on-1b140d.png` | All 47 assault-rifle fragments at once, one color each: an unreadable pile of five rifles. This is what part selection removes |
 | `sweep-gestaltdef-<class>.png` (six) | Twelve part combinations per weapon class from the sweep (§11.5) |
 
-Plainly: the shapes are right and recognisable for all six weapon classes. Nobody has compared
+Plainly: the shapes are right and recognizable for all six weapon classes. Nobody has compared
 any picture with the game side by side (§9).
 
-## 5. Colour and texture
+## 5. Color and texture
 
 ### 5.1 What the data says
 
@@ -145,11 +145,11 @@ any picture with the game side by side (§9).
 |---|---|
 | The material part (slot 8) is a `WeaponPartDefinition` with `PartType` `WP_Material` and a `Material` reference to a `MaterialInstanceConstant` under `Common_GunMaterials.Materials.<Class>.*` (211 parts carry `Material`; 95 of them state `PartType` `WP_Material`, the others leave `PartType` unset) | Probe; `Assembly::material` |
 | Instances chain through `Parent`: `Mati_JakobsRare_SG` → `MasterMaterials.Jakobs.MasterMati_JakobsRare` → `Common_Materials.Weapons.Master_Gun`. 84 instances sit directly under `Master_Gun` (the masters among them), the rest under one of 39 maker-and-rarity masters. A child's value overrides its parent's | Probe; `MaterialParameters::read`; test `materials_and_textures_read` |
-| Vector parameters (linear RGBA, often above 1): three colour zones with three tones each, `p_{A,B,C}Color{Hilight,Midtone,Shadow}`; `p_DColor`; decal and pattern colour, scale and position; `p_ReflectColor`; `p_EmissiveColor` | Probe (census over every `MaterialInstanceConstant` under `Common_GunMaterials`) |
+| Vector parameters (linear RGBA, often above 1): three color zones with three tones each, `p_{A,B,C}Color{Hilight,Midtone,Shadow}`; `p_DColor`; decal and pattern color, scale and position; `p_ReflectColor`; `p_EmissiveColor` | Probe (census over every `MaterialInstanceConstant` under `Common_GunMaterials`) |
 | Scalar parameters: `p_HighlightsIntensity`, `p_ShadowsIntensity`, `p_DecalRotate`, `p_ReplaceDecal`, `p_ReplacePattern`, `p_UseFullColorDecal`, … | Same |
 | Texture parameters: `p_Masks` (per class, `Weap_<Class>.Tex.Weap_<Class>_Comp`, 2048², DXT1), `p_Diffuse` (4096², DXT1, **shared by three classes**: `Common_GunMaterials.CompTextures.Weap_AssaultSubSniper_Comp` and `Weap_LauncherShotgunPistol_Comp`), `p_NormalScopesEmissive` (2048² normal map), `p_Pattern`, `p_Decal`, `P_SimpleReflect` | Same |
-| The shared diffuse holds one greyscale drawing per channel. The static mask `p_WeapClassSelect` in each instance says which: assault rifle R, SMG G, sniper B; launcher R, shotgun G, pistol B, matching the texture names | Read from the instances' native data (`MaterialParameters::channel`) for all eight rendered weapons; looked (the blue channel of the second texture is a pistol atlas with hand-drawn lines) |
-| `p_Masks` is two maps stacked. Lower half: the colour zones, almost pure red, green or blue (A, B, C). Upper half: two detail masks in red and green; the parameter node is described as "Hilight Shad" | Decoded and looked; test `materials_and_textures_read` (91 to 95 % of the lower half is one pure channel); the node description is in `Master_Gun` |
+| The shared diffuse holds one grayscale drawing per channel. The static mask `p_WeapClassSelect` in each instance says which: assault rifle R, SMG G, sniper B; launcher R, shotgun G, pistol B, matching the texture names | Read from the instances' native data (`MaterialParameters::channel`) for all eight rendered weapons; looked (the blue channel of the second texture is a pistol atlas with hand-drawn lines) |
+| `p_Masks` is two maps stacked. Lower half: the color zones, almost pure red, green or blue (A, B, C). Upper half: two detail masks in red and green; the parameter node is described as "Hilight Shad" | Decoded and looked; test `materials_and_textures_read` (91 to 95 % of the lower half is one pure channel); the node description is in `Master_Gun` |
 | Both halves and the diffuse are addressed by texture-coordinate set 0, the mask with v halved | Looked: the zones land on sensible parts (yellow body, black magazine and barrel) on every weapon tried. A wrong mapping gives confetti |
 | **The shader itself is not in the packages.** `Master_Gun` lists 137 expressions, but only the 43 parameter nodes survive cooking; the wiring between them is gone | Probe |
 | Textures: mips of 128 px and up are in `CharTextures.tfc` (808 MB) as LZO chunk streams, at the offset and size in the mip table (bulk flags `0x11`); mips of 64 px and down are inline. After the tagged properties: a 16-byte bulk header, mip count, then per mip the header (flags, byte count, size on disk, offset), inline data if any, width, height | `gamemesh::texture`; test `materials_and_textures_read` reads a 256 px mip from the cache and a 64 px mip inline |
@@ -158,22 +158,22 @@ any picture with the game side by side (§9).
 
 ### 5.2 What the crate does
 
-`gamemesh::material::GunSkin` colours each drawn point from the weapon's material:
+`gamemesh::material::GunSkin` colors each drawn point from the weapon's material:
 
 - **Flat:** the zone map picks A, B or C (or `p_DColor` where nothing is marked); the zone's
-  midtone colour is used, darkened by light band.
+  midtone color is used, darkened by light band.
 - **Textured** (the default): as flat, then blended towards the zone's shadow and highlight
-  colours by the two detail masks, then multiplied by the greyscale diffuse, which carries the
+  colors by the two detail masks, then multiplied by the grayscale diffuse, which carries the
   game's hand-inked lines.
 
-Colours above 1 are scaled back into range keeping their hue (§11.7). The mixing formula and the
-tone curve are guesses made by eye. Zone layout and zone colours are the game's own.
+Colors above 1 are scaled back into range keeping their hue (§11.7). The mixing formula and the
+tone curve are guesses made by eye. Zone layout and zone colors are the game's own.
 
 ### 5.3 Estimate
 
 | Option | State | Remaining work |
 |---|---|---|
-| Flat toon colours from the material | Prototype works for the base game | 1 to 2 days: settle the tone curve against the game, a fallback when a material or texture is missing, tests |
+| Flat toon colors from the material | Prototype works for the base game | 1 to 2 days: settle the tone curve against the game, a fallback when a material or texture is missing, tests |
 | Real textures, as far as the prototype goes | Prototype works | Included above, plus a choice of texture size (§6) |
 | Patterns and decals (camouflage, wood grain, maker logos, the Infinity's ∞ pattern) | Not started. Inputs are known: `p_Pattern`, `p_Decal`, their scale, position, rotation, channel masks, and coordinate set 1 | 3 to 5 days, and it will stay approximate without the shader. Sam's eye decides whether it is worth it |
 | A faithful copy of the game's shading | Not possible from the packages alone | Would mean reading the compiled shader cache. Not recommended |
@@ -221,7 +221,7 @@ In the working copy only (`…/scratchpad/mesh-spike/`), nothing committed.
 
 | File | Contents |
 |---|---|
-| `src/pictures.rs` | **The app's entry point.** `Pictures::{open, open_package, new, weapon_png, weapon_image, assembly_image, decode, style, set_style, skin_problem, texture_bytes, source}`, `TEXTURE_BUDGET`, `MAX_PIXELS`; `PictureError` with `message()`; `Style`, `Facing`, `Colouring`; `reduce_depth` |
+| `src/pictures.rs` | **The app's entry point.** `Pictures::{open, open_package, new, weapon_png, weapon_image, assembly_image, decode, style, set_style, skin_problem, texture_bytes, source}`, `TEXTURE_BUDGET`, `MAX_PIXELS`; `PictureError` with `message()`; `Style`, `Facing`, `Coloring`; `reduce_depth` |
 | `src/weapon.rs` | `WeaponSource::{open, from_package, assemble, assemble_paths, gestalt, material, texture, database, package_dir, problems, weapon_types, gestalt_paths}`; `Assembly`, `AssemblyPart`, `PartLook`, `fragment_names`, `WEAPON_SLOTS`, `MATERIAL_SLOT` |
 | `src/skeletal.rs` | `SkeletalMesh::{from_export, parse, bounding_box, second_uv}`; `Bone`, `Section`, `Chunk`, `Vertex` |
 | `src/gestalt.rs` | `GestaltMesh::{from_export, fragments_named, indices_of}`; `Fragment` |
@@ -229,7 +229,7 @@ In the working copy only (`…/scratchpad/mesh-spike/`), nothing committed.
 | `src/material.rs` | `material::MaterialParameters::{read, vector, scalar, texture, channel}`; `GunSkin::{new, texture_paths}`, `SkinDetail` |
 | `src/balances.rs` | `balances::weapon_balances`, `BalanceParts`: the parts each balance allows per slot (for the sweep) |
 | `src/render.rs` | `render::{render, render_with}`; `Scene`, `Triangle`, `View`, `Image`, `Shader`, `Sample`, `PaletteShader`, `MAX_SIDE` |
-| `src/picture.rs` | `picture::{weapon_scene, whole_gestalt_scene}`, `SLOT_COLOURS` |
+| `src/picture.rs` | `picture::{weapon_scene, whole_gestalt_scene}`, `SLOT_COLORS` |
 | `src/deflate.rs`, `src/png.rs` | `deflate::{deflate, zlib}`; `png::encode_rgba` |
 | `src/bin/gmrender.rs` | Developer tool: pictures from a save, a code or part paths; `--sweep`; `--bench` |
 | `tests/formats.rs`, `tests/support/` | Every reader on hand-made packages, and the robustness tests (§11.4) |
@@ -266,7 +266,7 @@ Add `--sweep` for the sweep and its contact sheets, `--bench` for the timings.
 - No web page, repository or third-party source file was opened during this spike, and no code
   was copied from anywhere. The oracle repository was not consulted.
 - Prior knowledge used as a starting hypothesis, then checked against the bytes: the general
-  order of fields in Unreal Engine 3's skeletal mesh, texture mip and bulk-data serialisation, as
+  order of fields in Unreal Engine 3's skeletal mesh, texture mip and bulk-data serialization, as
   described in Epic's public UDK-era documentation and widely repeated in community format notes;
   the S3TC (DXT1/DXT5) block layout; IEEE half floats.
 - Specifications the PNG writer follows: RFC 2083 (PNG), RFC 1950 (zlib), RFC 1951 (deflate,
@@ -277,11 +277,11 @@ Add `--sweep` for the sweep and its contact sheets, `--bench` for the timings.
 ## 9. Not verified, not done
 
 - **No picture has been compared with the game.** Shapes rest on "it is plainly that gun";
-  colours rest on the data's own values and on the Gearbox guns coming out yellow and black. Sam
+  colors rest on the data's own values and on the Gearbox guns coming out yellow and black. Sam
   should hold a few against the inventory screen.
 - **Which facing the game's own inventory uses** is not known from the data (§11.6 settles left
   and right and that neither view is mirrored, not which one the game prefers).
-- The colour formula (§5.2) is a guess. Patterns, decals, reflections, emissive glow (elemental
+- The color formula (§5.2) is a guess. Patterns, decals, reflections, emissive glow (elemental
   parts) and the normal map are not drawn, so a skin whose character is its pattern (Torgue's
   chequers, Maliwan's hexagons, Jakobs wood grain) comes out plainer than in the game.
 - Scope glass and similar effect meshes (`FX_WEP_Scopes.Meshes.*`, static meshes) are not drawn.
@@ -306,7 +306,7 @@ Add `--sweep` for the sweep and its contact sheets, `--bench` for the timings.
 | Piece | Estimate |
 |---|---|
 | ~~Harden `gamemesh` for merging~~ | Done (§11) |
-| Settle the look with Sam against the game: facing, angle, flat or textured, rim colour | 0.5 day |
+| Settle the look with Sam against the game: facing, angle, flat or textured, rim color | 0.5 day |
 | Wire into the app: a picture route on the window's protocol answered by a picture thread that owns one `Pictures`; an in-memory cache of finished PNGs by code and size; a placeholder while it draws and for the errors; thumbnail and detail sizes in the UI | 2 to 3 days |
 | **Base-game weapons** | **about 3 to 4 days** |
 | DLC weapons: part and material lookup across the DLC startup packages, DLC texture caches. Blocked on the in-game DLC check | 2 to 3 days more |
@@ -333,7 +333,7 @@ transparent background, or a `PictureError`:
 | `GameData(detail)` | a mesh, definition or the package itself is missing or not as expected | "A game file is missing or not as expected, so the picture could not be made." |
 
 Checked by test `what_cannot_be_drawn_says_why`. A missing or damaged **texture** does not fail
-the picture: it is drawn in plain colours and `skin_problem()` says why (same test).
+the picture: it is drawn in plain colors and `skin_problem()` says why (same test).
 `Pictures` is `Send` (test `pictures_can_move_to_another_thread`), takes `&mut self`, and holds
 no file open. Sizes are clamped, never refused (test `a_code_becomes_a_png`).
 
@@ -363,8 +363,8 @@ picks one of the five row filters per row by the usual smallest-sum rule.
 | A reference zlib (Python, outside the test suite) inflates the real pictures, and its own level 6 output for the same filtered data is 5 % smaller than ours, level 9 8 % smaller | Probe on the 1120×560 and 240×120 Infinity |
 | Code lengths stay within 15 bits (7 for the code-length alphabet) on Fibonacci-like frequencies | Unit test |
 
-Sizes, textured, as `weapon_png` writes them (colour kept to 6 bits a channel, alpha 8; the
-texture grain hides the steps; `Style::colour_bits` changes it):
+Sizes, textured, as `weapon_png` writes them (color kept to 6 bits a channel, alpha 8; the
+texture grain hides the steps; `Style::color_bits` changes it):
 
 | Picture | 1120×560 | 240×120 |
 |---|---|---|
@@ -372,7 +372,7 @@ texture grain hides the steps; `Style::colour_bits` changes it):
 | Gearbox Rifle | 150 KB | 13 KB |
 | Projectile Convergence | 155 KB | 14 KB |
 | Callipeen | 89 KB | 8 KB |
-| Infinity, flat colouring | 46 KB at 8 bits | 11 KB |
+| Infinity, flat coloring | 46 KB at 8 bits | 11 KB |
 
 The spike's stored-block writer would give 2.5 MB for 1120×560 (it gave 1.28 MB for 800×400). Encoding takes 66 ms for the large
 picture and 3 ms for the small one.
@@ -406,7 +406,7 @@ least once per balance.
 |---|---|
 | 242 balances, all with a known weapon type; 1,751 combinations; 652 of the 658 part definitions used | `gmrender --sweep` (8.7 s); test `every_balance_assembles_and_draws` |
 | **All 1,751 assembled; none failed.** No part missing from `Startup.upk`, no fragment missing from a mesh, every combination has a material | Same |
-| All 1,751 drew (160×80, plain colours). None empty; coverage 10 % to 46 % of the picture | `gmrender --sweep` |
+| All 1,751 drew (160×80, plain colors). None empty; coverage 10 % to 46 % of the picture | `gmrender --sweep` |
 | No combination has a part that does not touch the others (bounding boxes grown by 2 units) | Same |
 | Sizes in model units, min / median / max. Length: assault rifle 97/106/142, launcher 182/191/220, pistol 35/46/108, SMG 73/80/100, shotgun 87/117/144, sniper 152/170/203. Height: 22 to 77 across all | Same |
 | Looked at two contact sheets (pistols, launchers; twelve combinations each): whole, plausible guns in twelve different skins | `sweep-gestaltdef-pistol.png`, `sweep-gestaltdef-launcher.png` |
@@ -437,10 +437,10 @@ was not possible.
 
 Cause, from the data: in these skins the zone **midtones are neutral whites above 1**
 (Torgue purple-rarity: A midtone 1.83, 1.83, 1.83; Maliwan blue-rarity: A 1.83, B 3.35), and
-the colour sits in the highlight and shadow tones and in the pattern. The spike's tone curve
-let 1.8 to 3.4 times the drawn grey through, which clipped to plain white and erased the lines.
+the color sits in the highlight and shadow tones and in the pattern. The spike's tone curve
+let 1.8 to 3.4 times the drawn gray through, which clipped to plain white and erased the lines.
 
-Fix: every zone tone is scaled back to a peak of 1, keeping its hue, before the grey drawing is
+Fix: every zone tone is scaled back to a peak of 1, keeping its hue, before the gray drawing is
 applied. Looked: the Torgue rifle now shows its drawn lines and blue highlights on a white body
 instead of a white blank.
 
@@ -460,43 +460,43 @@ the pattern textures themselves (decoded and looked at), then judged by eye.
 | Fact | How checked |
 |---|---|
 | 36 distinct `p_Pattern` textures over the gun materials; 54 instances name none. The most used: `Pattern_BanditRare` (22), `Pattern_HexScrollGrunge_Comp` (17), `Pattern_JakobsUncommonWood` (12), `Pattern_CarbonHexCheck_Comp` (10), `Pattern_TorgueRare` (8), `Logo_MoxxiSwirl` (7) | Probe |
-| Pattern textures are of two kinds. **Full colour** (`Pattern_JakobsCommon` wood, `VladovMetalCommon_Dif` worn dark metal, `Pattern_DahlCommon` desert camouflage, `Pattern_BanditRare` painted rust, `Pattern_TorgueEpic` red/white/black chequer, 64×16) and **packed masks** (`…_Comp`: a different grey pattern in each channel; `Pattern_HyperionStripeCommon`: one grey mask) | Decoded the inline 64 px mips and looked |
-| The static mask `p_PatternChannel` says which: R, G and B on for a full-colour pattern (134 instances), a single channel for a packed one (R 68, G 10, B 10) | Probe over the instances' native data |
-| `p_PatternChannelScale` (x, y, z, w) is the strength per colour zone A, B, C and the rest: Jakobs and Dahl common (1, 0, 0, 0), Vladof common (0.92, 0.85, 0.85, 0), Tediore common (0.54, 0.58, 0.64, 0.8) | Probe |
+| Pattern textures are of two kinds. **Full color** (`Pattern_JakobsCommon` wood, `VladovMetalCommon_Dif` worn dark metal, `Pattern_DahlCommon` desert camouflage, `Pattern_BanditRare` painted rust, `Pattern_TorgueEpic` red/white/black chequer, 64×16) and **packed masks** (`…_Comp`: a different gray pattern in each channel; `Pattern_HyperionStripeCommon`: one gray mask) | Decoded the inline 64 px mips and looked |
+| The static mask `p_PatternChannel` says which: R, G and B on for a full-color pattern (134 instances), a single channel for a packed one (R 68, G 10, B 10) | Probe over the instances' native data |
+| `p_PatternChannelScale` (x, y, z, w) is the strength per color zone A, B, C and the rest: Jakobs and Dahl common (1, 0, 0, 0), Vladof common (0.92, 0.85, 0.85, 0), Tediore common (0.54, 0.58, 0.64, 0.8) | Probe |
 | `p_PatternScalePosition` is (tiling x, tiling y, offset x, offset y) on texture-coordinate set 1, the side projection: 4 to 17 repeats across a weapon | Probe; looked (the chequers run along the rifle, the camouflage blotches are weapon-sized) |
-| `p_PatternColor` is nearly always above 1 (151 of 165). It is the colour a grey mask pattern is drawn in. For full-colour patterns it is **not** applied here: with it, Jakobs wood and Vladof metal come out pale cream; without it they are the dark wood and dark metal the game shows | Rendered both ways and looked (§12.3) |
-| `p_ReplacePattern` is 1 on 11 instances, 0 or absent elsewhere: whether the pattern replaces the zone colour or multiplies it. Multiplying is the default: the Torgue purple skin's zone A is white 1.83 and its pattern colour 0.65 grey, which only makes sense as a product | Probe; reasoning |
-| Decals: `p_Decal` (a logo texture, often a three-logo `…_Comp` pack), `p_DecalChannel` (which channel), `p_UseFullColorDecal` (the texture's own colours, else the channel as a mask drawn in `p_DecalColor`), `p_DecalScalePosition` (scale x, y, offset x, y on coordinate set 1, one copy, not tiled), `p_ReplaceDecal` (0.29 to 2.0; read as opacity), `p_DecalRotate` (not drawn), and the static switch `sw_FlipDecalOnRightSide` (on for 55 instances) | Probe |
-| `p_HighlightsIntensity` and `p_ShadowsIntensity` read as **exponents** on the two masks, not multipliers: the Jakobs skins carry a shadow intensity of 8 with a blue-grey shadow tone, and under any multiplier reading their wood turns blue. As exponents, a high value keeps the tone to where the mask is strongest | Rendered both ways and looked |
+| `p_PatternColor` is nearly always above 1 (151 of 165). It is the color a gray mask pattern is drawn in. For full-color patterns it is **not** applied here: with it, Jakobs wood and Vladof metal come out pale cream; without it they are the dark wood and dark metal the game shows | Rendered both ways and looked (§12.3) |
+| `p_ReplacePattern` is 1 on 11 instances, 0 or absent elsewhere: whether the pattern replaces the zone color or multiplies it. Multiplying is the default: the Torgue purple skin's zone A is white 1.83 and its pattern color 0.65 gray, which only makes sense as a product | Probe; reasoning |
+| Decals: `p_Decal` (a logo texture, often a three-logo `…_Comp` pack), `p_DecalChannel` (which channel), `p_UseFullColorDecal` (the texture's own colors, else the channel as a mask drawn in `p_DecalColor`), `p_DecalScalePosition` (scale x, y, offset x, y on coordinate set 1, one copy, not tiled), `p_ReplaceDecal` (0.29 to 2.0; read as opacity), `p_DecalRotate` (not drawn), and the static switch `sw_FlipDecalOnRightSide` (on for 55 instances) | Probe |
+| `p_HighlightsIntensity` and `p_ShadowsIntensity` read as **exponents** on the two masks, not multipliers: the Jakobs skins carry a shadow intensity of 8 with a blue-gray shadow tone, and under any multiplier reading their wood turns blue. As exponents, a high value keeps the tone to where the mask is strongest | Rendered both ways and looked |
 | A switch (`sw_…`) sits in the static block as name, value, override flag, GUID: two flag words, not four | Hexdump of the Infinity's material (§5.1) |
 | Four pattern textures (`Pattern_RedSpectrum` and three more 256×2 gradients) are `PF_A8R8G8B8`, uncompressed B, G, R, A | Probe; `the_source_opens_without_problems` failed on them until the format was added |
 
 ### 12.2 What is drawn now
 
-Per colour zone: tones (midtone, shadow and highlight by their masks), then the pattern at its
-strength for that zone (texture × `p_PatternColor` for a grey mask, the texture's own colours
-otherwise; multiplied into the zone colour, or replacing it with `p_ReplacePattern`). The zones
+Per color zone: tones (midtone, shadow and highlight by their masks), then the pattern at its
+strength for that zone (texture × `p_PatternColor` for a gray mask, the texture's own colors
+otherwise; multiplied into the zone color, or replacing it with `p_ReplacePattern`). The zones
 are then mixed by the zone map, the decal is laid over the result where its square lands
-(mirrored on the +X side when the switch says so), and the greyscale drawing is applied as
-before. Skins without a pattern or decal draw exactly as before. Plain and flat colouring are
+(mirrored on the +X side when the switch says so), and the grayscale drawing is applied as
+before. Skins without a pattern or decal draw exactly as before. Plain and flat coloring are
 unchanged.
 
 ### 12.3 Judged by eye
 
 Sheets on `#1B140D` in the session scratchpad,
-`…/scratchpad/mesh-shots/patterns/{before,after,v2-exponent-nocolour}/`:
+`…/scratchpad/mesh-shots/patterns/{before,after,v2-exponent-nocolor}/`:
 
 - `maya-weapons.png`: Sam's five. Before: three mostly white. After: the Torgue rifle has its
   red-striped racing chequer, the Tediore pistol its carbon-fibre weave, the Dahl SMG orange
   and tan camouflage with a yellow "DAHL" decal that reads the right way round, the Vladof
   pistol a small red decal on white steel, the Maliwan SMG its hexagon grunge on white and blue.
 - `makers-common-pistols.png`: one common pistol per maker. After: Jakobs has a wood grip and
-  steel body, Vladof worn brownish metal, Dahl desert camouflage, Torgue a grey chequer, Bandit
+  steel body, Vladof worn brownish metal, Dahl desert camouflage, Torgue a gray chequer, Bandit
   painted rust; Hyperion (yellow), Tediore (white) and Maliwan (white and blue) have no pattern
   and did not change. These match the game's skins as I remember them; no side-by-side with
   the game has been made.
 - `after/` is the first attempt (multiplier intensities, `p_PatternColor` on everything):
-  Jakobs and Vladof stayed pale. `v2-exponent-nocolour/` is what is now in the code.
+  Jakobs and Vladof stayed pale. `v2-exponent-nocolor/` is what is now in the code.
 
 The "DAHL" lettering reading correctly in the default view is one more sign that the view is
 not mirrored (§11.6).
@@ -512,8 +512,8 @@ than the grain did).
 ### 12.5 Still approximate
 
 - The tone and layer formulas are reasoned, not read from the shader: the exponent reading
-  of the intensities, the pattern multiplying the zone colour, the decal opacity, and leaving
-  `p_PatternColor` off full-colour patterns are all choices judged by eye.
+  of the intensities, the pattern multiplying the zone color, the decal opacity, and leaving
+  `p_PatternColor` off full-color patterns are all choices judged by eye.
 - `p_DecalRotate` is not applied. Decal placement follows `offset + uv × scale` on coordinate
   set 1, which puts the DAHL and Vladof decals in sensible places; other decals were not
   checked one by one.

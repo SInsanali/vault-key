@@ -93,7 +93,7 @@ impl Pixels {
         self.rgba.len()
     }
 
-    /// The texel at texture coordinate (u, v), wrapping, nearest neighbour.
+    /// The texel at texture coordinate (u, v), wrapping, nearest neighbor.
     pub fn sample(&self, u: f32, v: f32) -> [u8; 4] {
         if !self.is_sound() {
             return [0; 4];
@@ -371,7 +371,7 @@ fn decode_dxt(data: &[u8], w: usize, h: usize, format: PixelFormat) -> Vec<u8> {
             p += 8;
             let (r0, r1) = (rgb565(c0), rgb565(c1));
             let mix = |a: [u32; 3], b: [u32; 3], wa: u32, wb: u32| [0, 1, 2].map(|i| (a[i] * wa + b[i] * wb) / (wa + wb));
-            let colours = if c0 > c1 || format == PixelFormat::Dxt5 {
+            let colors = if c0 > c1 || format == PixelFormat::Dxt5 {
                 [r0, r1, mix(r0, r1, 2, 1), mix(r0, r1, 1, 2)]
             } else {
                 [r0, r1, mix(r0, r1, 1, 1), [0, 0, 0]]
@@ -379,7 +379,7 @@ fn decode_dxt(data: &[u8], w: usize, h: usize, format: PixelFormat) -> Vec<u8> {
             for i in 0..16 {
                 let (x, y) = (bx + (i & 3), by + (i >> 2));
                 if x < w && y < h {
-                    let c = colours[((bits >> (2 * i)) & 3) as usize];
+                    let c = colors[((bits >> (2 * i)) & 3) as usize];
                     let at = (y * w + x) * 4;
                     out[at..at + 4].copy_from_slice(&[c[0] as u8, c[1] as u8, c[2] as u8, alpha[i]]);
                 }
@@ -395,15 +395,15 @@ mod tests {
 
     #[test]
     fn dxt1_block_decodes() {
-        // Colour 0 pure red, colour 1 pure blue (c0 > c1: four-colour mode); the index rows
-        // select colour 0, 1, 2, 3 for the whole row.
+        // Color 0 pure red, color 1 pure blue (c0 > c1: four-color mode); the index rows
+        // select color 0, 1, 2, 3 for the whole row.
         let block = [0x00, 0xF8, 0x1F, 0x00, 0b0000_0000, 0b0101_0101, 0b1010_1010, 0b1111_1111];
         let px = decode_dxt(&block, 4, 4, PixelFormat::Dxt1);
         assert_eq!(&px[0..4], &[255, 0, 0, 255]);
         assert_eq!(&px[16..20], &[0, 0, 255, 255]);
         assert_eq!(&px[32..36], &[170, 0, 85, 255]);
         assert_eq!(&px[48..52], &[85, 0, 170, 255]);
-        // c0 <= c1: three colours and black.
+        // c0 <= c1: three colors and black.
         let block = [0x1F, 0x00, 0x00, 0xF8, 0xFF, 0xFF, 0xAA, 0xAA];
         let px = decode_dxt(&block, 4, 4, PixelFormat::Dxt1);
         assert_eq!(&px[0..4], &[0, 0, 0, 255]);
@@ -573,7 +573,7 @@ mod tests {
         assert_eq!(pixels.sample(0.9, 0.5)[0], 2);
         assert_eq!(pixels.sample(1.1, -3.5)[0], 1);
         assert_eq!(pixels.sample(-0.1, 0.0)[0], 2);
-        // Texel centres give the texel; half-way between gives the mean, also across the wrap.
+        // Texel centers give the texel; half-way between gives the mean, also across the wrap.
         assert_eq!(pixels.sample_linear(0.25, 0.5)[0], 1.0);
         assert_eq!(pixels.sample_linear(0.75, 0.5)[0], 2.0);
         assert_eq!(pixels.sample_linear(0.5, 0.5)[0], 1.5);

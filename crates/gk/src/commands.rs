@@ -436,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn install_fails_closed_on_an_unreadable_neighbour() {
+    fn install_fails_closed_on_an_unreadable_neighbor() {
         let s = Sandbox::new("closed");
         fs::write(s.slot_dir().join("Save0007.sav"), b"not a save").unwrap();
         let three = s.save("three.sav", 3);
@@ -502,7 +502,7 @@ mod tests {
         let out = s.dir.join("out.sav");
         for (arg, expect) in [
             ("level", "expected key=value"),
-            ("colour=3", "unknown key"),
+            ("color=3", "unknown key"),
             ("level=abc", "whole number"),
             ("level=999", "level"),
         ] {

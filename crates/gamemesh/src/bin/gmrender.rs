@@ -10,9 +10,9 @@
 //!                             <elemental>;<accessory 1>;<accessory 2>;<material>" (part paths,
 //!                             an empty field for an empty slot)
 //!   --size <W>x<H>           picture size; may be given several times (default 1120x560)
-//!   --backdrop <RRGGBB>      composite over this colour instead of leaving it transparent
+//!   --backdrop <RRGGBB>      composite over this color instead of leaving it transparent
 //!   --facing left|right      which way the muzzle points (default left)
-//!   --colouring plain|flat|textured
+//!   --coloring plain|flat|textured
 //!   --angle <yaw>,<pitch>    camera turn and rise in degrees (default 0,0)
 //!   --crop <l>,<t>,<r>,<b>   keep only this part of each picture (fractions 0…1)
 //!   --sheet <columns>        also one picture of all the subjects side by side (first size)
@@ -34,7 +34,7 @@ use gamedata::{GameInstall, ItemRefs};
 use gamemesh::balances::{item_definitions, weapon_balances, BalanceParts};
 use gamemesh::picture::whole_gestalt_scene;
 use gamemesh::render::{render, Image, View};
-use gamemesh::{png, Assembly, Colouring, Facing, Pictures, Style, WeaponSource, WEAPON_SLOTS};
+use gamemesh::{png, Assembly, Coloring, Facing, Pictures, Style, WeaponSource, WEAPON_SLOTS};
 use savekit::{ItemFields, SaveDocument};
 
 const INFINITY: &str = "BL2(hwAAAADX0ACE5wRACiGT6cOQhYEQowHG/38JGBkw/v8rxACCgRED)";
@@ -76,7 +76,7 @@ fn numbers<T: std::str::FromStr>(text: &str, separator: char, count: usize) -> R
     }
 }
 
-/// Lays `image` over a solid colour.
+/// Lays `image` over a solid color.
 fn composite(image: &mut Image, backdrop: [u8; 3]) {
     for pixel in image.rgba.as_chunks_mut::<4>().0 {
         let alpha = u32::from(pixel[3]);
@@ -104,9 +104,9 @@ fn save(options: &Options, name: &str, mut image: Image) -> Result<usize, String
         image = crop(&image, area);
     }
     // As `Pictures::weapon_png` does, so the files here are what the app would get.
-    gamemesh::reduce_depth(&mut image.rgba, options.style.colour_bits);
-    if let Some(colour) = options.backdrop {
-        composite(&mut image, colour);
+    gamemesh::reduce_depth(&mut image.rgba, options.style.color_bits);
+    if let Some(color) = options.backdrop {
+        composite(&mut image, color);
     }
     let file = png::encode_rgba(image.width, image.height, &image.rgba);
     let path = options.out.join(name);
@@ -119,10 +119,10 @@ fn name_suffix(options: &Options) -> String {
     if options.style.facing == Facing::MuzzleRight {
         suffix += "-right";
     }
-    match options.style.colouring {
-        Colouring::Plain => suffix += "-plain",
-        Colouring::Flat => suffix += "-flat",
-        Colouring::Textured => {}
+    match options.style.coloring {
+        Coloring::Plain => suffix += "-plain",
+        Coloring::Flat => suffix += "-flat",
+        Coloring::Textured => {}
     }
     if options.style.yaw != 0.0 || options.style.pitch != 0.0 {
         suffix += "-angled";
@@ -177,7 +177,7 @@ fn draw(pictures: &mut Pictures, options: &Options, subject: &Subject) -> Result
 }
 
 /// All the subjects in one picture, `columns` to a row, over the backdrop (the app's page
-/// colour unless another was given).
+/// color unless another was given).
 fn sheet(pictures: &mut Pictures, options: &Options, subjects: &[Subject], columns: u32) -> Result<(), String> {
     let (cell_w, cell_h) = options.sizes[0];
     let columns = columns.clamp(1, 12);
@@ -191,7 +191,7 @@ fn sheet(pictures: &mut Pictures, options: &Options, subjects: &[Subject], colum
             Subject::Built(_, assembly) => Some(assembly.clone()),
         };
         let Some(mut image) = assembly.and_then(|a| pictures.assembly_image(&a, cell_w, cell_h).ok()) else { continue };
-        gamemesh::reduce_depth(&mut image.rgba, options.style.colour_bits);
+        gamemesh::reduce_depth(&mut image.rgba, options.style.color_bits);
         composite(&mut image, backdrop);
         let (ox, oy) = ((cell as u32 % columns) * cell_w, (cell as u32 / columns) * cell_h);
         for y in 0..image.height.min(cell_h) {
@@ -260,7 +260,7 @@ fn sweep(pictures: &mut Pictures, options: &Options, startup: &Path) -> Result<(
     let mut failures: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let (mut balances_used, mut combinations, mut no_type) = (0, 0, 0);
     let mut parts_seen = std::collections::BTreeSet::new();
-    pictures.set_style(Style { colouring: Colouring::Plain, ..options.style.clone() });
+    pictures.set_style(Style { coloring: Coloring::Plain, ..options.style.clone() });
     let t = Instant::now();
     for balance in &balances {
         let Some(weapon_type) = balance.weapon_type.as_deref().filter(|t| pictures.source().weapon_types().any(|known| known == *t))
@@ -472,14 +472,14 @@ fn bench(install: &GameInstall) -> Result<(), String> {
             println!("{width}x{height} {run}: draw {drawn:.0?}, PNG {encoded:.0?}, {} bytes ({})", file.len(), smaller.join(", "));
         }
     }
-    for colouring in [Colouring::Flat, Colouring::Plain] {
-        pictures.set_style(Style { colouring, ..Style::default() });
+    for coloring in [Coloring::Flat, Coloring::Plain] {
+        pictures.set_style(Style { coloring, ..Style::default() });
         for (width, height) in [(1120, 560), (240, 120)] {
             let t = Instant::now();
             let image = pictures.weapon_image(&item, width, height).map_err(|e| e.to_string())?;
             let drawn = t.elapsed();
             let file = png::encode_rgba(image.width, image.height, &image.rgba);
-            println!("{width}x{height} {colouring:?}: draw {drawn:.0?}, {} bytes", file.len());
+            println!("{width}x{height} {coloring:?}: draw {drawn:.0?}, {} bytes", file.len());
         }
     }
     println!("decoded textures held: {} MiB", pictures.texture_bytes() >> 20);
@@ -488,7 +488,7 @@ fn bench(install: &GameInstall) -> Result<(), String> {
 
 fn run(args: &[String]) -> Result<(), String> {
     let usage = "usage: gmrender <out-dir> [--save f.sav] [--code BL2(...)] [--build spec] [--size WxH] [--backdrop RRGGBB] \
-                 [--facing left|right] [--colouring plain|flat|textured] [--angle yaw,pitch] [--crop l,t,r,b] [--sheet columns] [--all gestalt] [--sweep] [--dlc] [--bench]";
+                 [--facing left|right] [--coloring plain|flat|textured] [--angle yaw,pitch] [--crop l,t,r,b] [--sheet columns] [--all gestalt] [--sweep] [--dlc] [--bench]";
     let out = PathBuf::from(args.first().ok_or(usage)?);
     let install = GameInstall::locate().ok_or("game install not found")?;
     if args.iter().any(|a| a == "--bench") {
@@ -546,15 +546,15 @@ fn run(args: &[String]) -> Result<(), String> {
                 options.sizes.push((v[0], v[1]));
             }
             "--backdrop" => {
-                let rgb = u32::from_str_radix(value, 16).map_err(|_| format!("bad colour {value}"))?;
+                let rgb = u32::from_str_radix(value, 16).map_err(|_| format!("bad color {value}"))?;
                 options.backdrop = Some([(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]);
             }
             "--facing" => options.style.facing = if value == "right" { Facing::MuzzleRight } else { Facing::MuzzleLeft },
-            "--colouring" => {
-                options.style.colouring = match value.as_str() {
-                    "plain" => Colouring::Plain,
-                    "flat" => Colouring::Flat,
-                    _ => Colouring::Textured,
+            "--coloring" => {
+                options.style.coloring = match value.as_str() {
+                    "plain" => Coloring::Plain,
+                    "flat" => Coloring::Flat,
+                    _ => Coloring::Textured,
                 }
             }
             "--angle" => {

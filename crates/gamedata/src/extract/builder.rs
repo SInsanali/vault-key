@@ -1,4 +1,4 @@
-//! Walks the asset libraries, the definitions they list and the rarity colour table into an
+//! Walks the asset libraries, the definitions they list and the rarity color table into an
 //! [`ItemDatabase`]. Only the exports the asset tables refer to are parsed (plus the rarity
 //! attributes those point to), never every export.
 
@@ -394,7 +394,7 @@ impl<'a> BuildContext<'a> {
     /// an attribute is set, and `BaseValueConstant` otherwise: the attribute replaces the
     /// constant, it is not added to it. (The base game never sets both. The five DLC
     /// definitions that do are all effervescent items whose attribute is the effervescent
-    /// level, 506; adding their constants would give levels the colour table does not have.)
+    /// level, 506; adding their constants would give levels the color table does not have.)
     ///
     /// Anything else the struct could do (an initialization definition, a scale other than 1,
     /// any other resolver chain) makes the value unresolvable.
@@ -480,7 +480,7 @@ fn kind_of_category(category: AssetCategory) -> DefinitionKind {
     }
 }
 
-/// Parts and balances are recognised by their class-name suffix (`WeaponPartDefinition`,
+/// Parts and balances are recognized by their class-name suffix (`WeaponPartDefinition`,
 /// `ItemNamePartDefinition`, `ClassModBalanceDefinition`, …). Any other class counts as an item
 /// type; one that is not really an item gets [`crate::ItemCategory::Unknown`] later.
 fn kind_of_class(class_name: &str) -> DefinitionKind {
@@ -669,7 +669,7 @@ mod tests {
         );
         assert_eq!(db.objects.len(), 18);
 
-        // Colours are stored B,G,R,A; missing levels default to 0.
+        // Colors are stored B,G,R,A; missing levels default to 0.
         assert_eq!(db.rarity_colors.len(), 9);
         assert_eq!(
             db.rarity_colors[0],
@@ -745,7 +745,7 @@ mod tests {
             Err(GameDataError::UnexpectedData(_))
         ));
 
-        // No colour table.
+        // No color table.
         let mut w = base_world();
         let globals = w.get("GD_Globals.General.Globals");
         let libraries: Vec<P> = [

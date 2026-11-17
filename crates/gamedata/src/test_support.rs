@@ -539,7 +539,7 @@ impl World {
     }
 
     /// `GD_Globals.General.Globals` over the six base libraries (which must exist at their
-    /// real paths) and a colour table shaped like the game's.
+    /// real paths) and a color table shaped like the game's.
     pub(crate) fn globals(&mut self) -> i32 {
         let libraries = [
             "WeaponTypes",

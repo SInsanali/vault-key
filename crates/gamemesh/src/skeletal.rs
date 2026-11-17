@@ -1,4 +1,4 @@
-//! The binary serialisation of a `SkeletalMesh` in this game's packages (version 832,
+//! The binary serialization of a `SkeletalMesh` in this game's packages (version 832,
 //! licensee 46), as far as LOD 0's geometry. The layout was worked out from the game's own
 //! files; see `docs/research/2026-11-09-weapon-pictures-spike.md` §3.
 
@@ -116,7 +116,7 @@ impl SkeletalMesh {
             let position = c.vec3()?;
             c.skip(4)?; // child count
             let parent = c.i32()?;
-            c.skip(4)?; // colour
+            c.skip(4)?; // color
             let parent = usize::try_from(parent)
                 .ok()
                 .filter(|&p| p < bone_count)

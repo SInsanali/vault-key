@@ -64,7 +64,7 @@ pub struct InventoryEntry {
     /// Weapons outside the bank: 0 = in the backpack, 1 to 4 = equipped in that slot.
     pub quick_slot: Option<i64>,
     pub is_equipped: bool,
-    /// The "star": by community knowledge 0 = trash, 1 = standard, 2 = favourite.
+    /// The "star": by community knowledge 0 = trash, 1 = standard, 2 = favorite.
     pub mark: Option<i64>,
     /// Stack size, for real items outside the bank.
     pub quantity: Option<i64>,

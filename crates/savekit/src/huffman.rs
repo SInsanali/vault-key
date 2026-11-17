@@ -1,5 +1,5 @@
 //! Huffman layer of the WSG blob (format doc section 3): MSB-first bits, a pre-order
-//! serialised tree (`1` = leaf followed by 8 bits, `0` = internal node), left = 0, right = 1.
+//! serialized tree (`1` = leaf followed by 8 bits, `0` = internal node), left = 0, right = 1.
 
 use std::collections::VecDeque;
 

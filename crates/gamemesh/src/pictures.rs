@@ -76,14 +76,14 @@ pub enum Facing {
     MuzzleRight,
 }
 
-/// How the weapon is coloured.
+/// How the weapon is colored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Colouring {
-    /// Neutral colours per part slot; needs no textures.
+pub enum Coloring {
+    /// Neutral colors per part slot; needs no textures.
     Plain,
-    /// The skin's colour zones as flat colours.
+    /// The skin's color zones as flat colors.
     Flat,
-    /// The skin's colour zones with the game's drawn lines and highlights.
+    /// The skin's color zones with the game's drawn lines and highlights.
     #[default]
     Textured,
 }
@@ -92,35 +92,35 @@ pub enum Colouring {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     pub facing: Facing,
-    pub colouring: Colouring,
+    pub coloring: Coloring,
     /// Turn of the camera around the vertical axis, and its rise, in degrees. 0, 0 is a flat
     /// side view.
     pub yaw: f32,
     pub pitch: f32,
-    /// Outline colour.
+    /// Outline color.
     pub ink: [u8; 3],
     /// A light rim outside the silhouette, for dark pages. `None` for no rim.
     pub rim: Option<[u8; 3]>,
-    /// Bits kept per colour channel in the PNG (4 to 8). Fewer bits make a smaller file; the
+    /// Bits kept per color channel in the PNG (4 to 8). Fewer bits make a smaller file; the
     /// texture grain hides the steps. Alpha always keeps 8.
-    pub colour_bits: u8,
+    pub color_bits: u8,
 }
 
 impl Default for Style {
     fn default() -> Self {
         Self {
             facing: Facing::default(),
-            colouring: Colouring::default(),
+            coloring: Coloring::default(),
             yaw: 0.0,
             pitch: 0.0,
             ink: [20, 17, 14],
             rim: Some([236, 222, 196]),
-            colour_bits: 6,
+            color_bits: 6,
         }
     }
 }
 
-/// Keeps the top `bits` bits of each colour byte and repeats them below, so that black
+/// Keeps the top `bits` bits of each color byte and repeats them below, so that black
 /// stays black and white stays white. Alpha is left alone.
 pub fn reduce_depth(rgba: &mut [u8], bits: u8) {
     let bits = u32::from(bits.clamp(4, 8));
@@ -222,7 +222,7 @@ impl Pictures {
         self.textures.bytes()
     }
 
-    /// Why the last picture was drawn in plain colours instead of its skin, if it was. A
+    /// Why the last picture was drawn in plain colors instead of its skin, if it was. A
     /// missing or damaged texture does not fail the picture.
     pub fn skin_problem(&self) -> Option<&str> {
         self.skin_problem.as_deref()
@@ -232,7 +232,7 @@ impl Pictures {
     /// transparent background.
     pub fn weapon_png(&mut self, code: &str, width: u32, height: u32) -> Result<Vec<u8>, PictureError> {
         let mut image = self.weapon_image(&Self::decode(code)?, width, height)?;
-        reduce_depth(&mut image.rgba, self.style.colour_bits);
+        reduce_depth(&mut image.rgba, self.style.color_bits);
         Ok(png::encode_rgba(image.width, image.height, &image.rgba))
     }
 
@@ -308,7 +308,7 @@ impl Pictures {
             height: h as u32,
             yaw: self.style.yaw,
             pitch: self.style.pitch,
-            // Items are modelled facing the other way: drawn like a weapon, their lettering is
+            // Items are modeled facing the other way: drawn like a weapon, their lettering is
             // mirrored.
             muzzle_right: (self.style.facing == Facing::MuzzleRight) != assembly.is_item,
             supersample,
@@ -320,18 +320,18 @@ impl Pictures {
         };
 
         self.skin_problem = None;
-        // A relic has no material part: it glows in the colour its body part sets.
-        if let (None, Some(glow), false) = (&assembly.material, assembly.glow, self.style.colouring == Colouring::Plain) {
+        // A relic has no material part: it glows in the color its body part sets.
+        if let (None, Some(glow), false) = (&assembly.material, assembly.glow, self.style.coloring == Coloring::Plain) {
             let texture = self.textures.get(&self.source, RELIC_TEXTURE, Self::LAYER_TEXTURE_SIZE);
             if let Err(e) = &texture {
                 self.skin_problem = Some(e.to_string());
             }
             return Ok(render_with(&scene, &view, &RelicSkin::new(glow, texture.ok())));
         }
-        let detail = match self.style.colouring {
-            Colouring::Plain => None,
-            Colouring::Flat => Some(SkinDetail::Flat),
-            Colouring::Textured => Some(SkinDetail::Textured),
+        let detail = match self.style.coloring {
+            Coloring::Plain => None,
+            Coloring::Flat => Some(SkinDetail::Flat),
+            Coloring::Textured => Some(SkinDetail::Textured),
         };
         let skin = detail.and_then(|detail| match self.skin(assembly, w as u32, detail) {
             Ok(skin) => Some(skin),

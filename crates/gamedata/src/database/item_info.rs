@@ -12,7 +12,7 @@ pub const PART_SLOTS: usize = 11;
 const PREFIX_SLOT: usize = 9;
 const TITLE_SLOT: usize = 10;
 
-/// Transparent black: the colour of `RarityLevelColors` rows that cover unused levels.
+/// Transparent black: the color of `RarityLevelColors` rows that cover unused levels.
 const FILLER_COLOR: Rgba = Rgba::new(0, 0, 0, 0);
 
 /// The decoded numbers of one saved item or weapon (format doc §6.6). A field is `None` when
@@ -89,8 +89,8 @@ pub struct RarityInfo {
     /// The summed rarity level (spike doc §5), or `None` when unknown.
     pub level: Option<i64>,
     pub tier: RarityTier,
-    /// The `RarityLevelColors` colour for `level`, alpha as stored. `None` when no row contains
-    /// the level or the row is the transparent-black filler, so the UI renders a neutral colour.
+    /// The `RarityLevelColors` color for `level`, alpha as stored. `None` when no row contains
+    /// the level or the row is the transparent-black filler, so the UI renders a neutral color.
     pub color: Option<Rgba>,
 }
 
@@ -363,10 +363,10 @@ impl ItemDatabase {
         }
     }
 
-    /// Tier and colour for a rarity level.
+    /// Tier and color for a rarity level.
     ///
-    /// A level with no colour row (e.g. 11), or whose row is exactly `RGBA(0,0,0,0)` (the filler,
-    /// 12…170), has no colour, so it renders neutral. Alpha is otherwise not an "unused" marker:
+    /// A level with no color row (e.g. 11), or whose row is exactly `RGBA(0,0,0,0)` (the filler,
+    /// 12…170), has no color, so it renders neutral. Alpha is otherwise not an "unused" marker:
     /// Seraph (501, #FF9AB8) has alpha 0 yet shows pink in game, so such rows are known.
     pub fn rarity_for_level(&self, level: Option<i64>) -> RarityInfo {
         let Some(level) = level else {
@@ -439,7 +439,7 @@ mod tests {
     /// item type 0 a cross-DLC class mod; item part 0 title "Necromancer"; balance 0 a mission
     /// weapon's.
     ///
-    /// The colour rows follow the game table's shape: 0 beige with alpha 0, 6 rated
+    /// The color rows follow the game table's shape: 0 beige with alpha 0, 6 rated
     /// `RARITY_VeryRare`, no row for 11, 12…170 transparent-black filler.
     fn synthetic() -> ItemDatabase {
         use AssetCategory::*;
@@ -690,17 +690,17 @@ mod tests {
         );
     }
 
-    /// Ledger ruling (b): a level with no colour row (11) renders neutral, never black.
+    /// Ledger ruling (b): a level with no color row (11) renders neutral, never black.
     #[test]
-    fn level_eleven_has_no_colour() {
+    fn level_eleven_has_no_color() {
         let r = synthetic().info(&pistol(&[(0, 3), (2, 2)])).rarity; // 6 + 5
         assert_eq!(r, rarity(11, RarityTier::Unknown, None));
     }
 
     /// Ledger ruling (b, amended): only the transparent-black filler row (12…170) renders
-    /// neutral. Other rows with alpha 0 (here 0, beige) keep their colour, alpha as stored.
+    /// neutral. Other rows with alpha 0 (here 0, beige) keep their color, alpha as stored.
     #[test]
-    fn filler_row_has_no_colour() {
+    fn filler_row_has_no_color() {
         let db = synthetic();
         let twelve = db.info(&pistol(&[(0, 3), (2, 3)])).rarity; // 6 + 6
         assert_eq!(twelve, rarity(12, RarityTier::Unknown, None));
@@ -712,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn tiers_and_colours_by_level() {
+    fn tiers_and_colors_by_level() {
         let db = synthetic();
         let tier = |level| db.rarity_for_level(Some(level)).tier;
         assert_eq!(
@@ -728,7 +728,7 @@ mod tests {
                 RarityTier::Legendary
             ]
         );
-        // Seraph's row has alpha 0 but is a real colour.
+        // Seraph's row has alpha 0 but is a real color.
         assert_eq!(
             db.rarity_for_level(Some(501)),
             rarity(501, RarityTier::Seraph, Some(Rgba::new(255, 154, 184, 0)))

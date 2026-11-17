@@ -1,5 +1,5 @@
 //! Extracts what item cards are computed from: the attribute effects of every type and part in
-//! the asset tables, the attribute and initialisation definitions they refer to, and the
+//! the asset tables, the attribute and initialization definitions they refer to, and the
 //! presentation rules for the attributes that cards show.
 //!
 //! Nothing here fails the build. Whatever cannot be read as expected is recorded (a
@@ -50,7 +50,7 @@ pub(crate) mod presentation_defaults {
     pub(crate) const ENABLE_TEXT_COLOR: bool = true;
     pub(crate) const INCLUDE_PREFIX: bool = true;
     pub(crate) const INCLUDE_SUFFIX: bool = true;
-    /// `TextColor` as stored (B, G, R, A): white, the card's plain text colour.
+    /// `TextColor` as stored (B, G, R, A): white, the card's plain text color.
     pub(crate) const TEXT_COLOR: [u8; 4] = [255, 255, 255, 255];
 }
 
@@ -910,7 +910,7 @@ impl Extractor<'_, '_> {
         })
     }
 
-    /// Reads the definitions of every queued attribute and initialisation definition, and of
+    /// Reads the definitions of every queued attribute and initialization definition, and of
     /// those they refer to in turn.
     fn follow_references(&mut self) {
         loop {
@@ -1138,7 +1138,7 @@ impl Extractor<'_, '_> {
         };
         let minimum = bound("bEnableMinValueRestriction", "MinValue")?;
         let maximum = bound("bEnableMaxValueRestriction", "MaxValue")?;
-        // The game's own note: conditional initialisation is ignored when the formula is
+        // The game's own note: conditional initialization is ignored when the formula is
         // enabled.
         let unsupported = if variance {
             Some("random variance".to_string())

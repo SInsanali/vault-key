@@ -323,7 +323,7 @@ fn presentation_class_defaults() {
     let engine = cooked(g, "Engine.upk");
     let inventory = props(&engine, "Default__WillowInventoryDefinition");
     assert_eq!(inventory.int("AttributeSlotMaxActivated"), Some(19));
-    // The formula the game's own data states for initialisation definitions.
+    // The formula the game's own data states for initialization definitions.
     let init = props(&engine, "Default__AttributeInitializationDefinition");
     assert_eq!(
         init.struct_fields("ValueFormula")
@@ -358,7 +358,7 @@ fn stat_data_shape() {
         .count();
     println!(
         "definitions {} (weapon types {weapon_types}), attributes {} ({unsupported} unsupported), \
-         initialisation definitions {} ({} unsupported)",
+         initialization definitions {} ({} unsupported)",
         s.definitions.len(),
         s.attributes.len(),
         s.initializations.len(),
@@ -436,7 +436,7 @@ fn stat_data_shape() {
 }
 
 /// Every attribute a base-game or DLC definition modifies is an attribute definition in the
-/// packages, and every attribute or initialisation definition used as a value was found.
+/// packages, and every attribute or initialization definition used as a value was found.
 #[test]
 fn referenced_attributes_resolve() {
     let Some(g) = game() else { return };
@@ -489,7 +489,7 @@ fn referenced_attributes_resolve() {
         .collect();
     println!(
         "modified attributes {} (not found {}), value attributes {} (not found {}), \
-         initialisation definitions {} (not found {})",
+         initialization definitions {} (not found {})",
         modified.len(),
         not_attributes.len(),
         values.len(),
@@ -1369,7 +1369,7 @@ fn item_kinds_and_lines_census() {
 
 /// Every shield type with every item part of the base game: capacity, recharge rate and
 /// recharge delay are always computed. A shield's fourth row (its special effect) is shown as
-/// modifier text, which is not modelled, and stays unknown.
+/// modifier text, which is not modeled, and stays unknown.
 #[test]
 fn every_shield_part_evaluates() {
     let Some(g) = game() else { return };

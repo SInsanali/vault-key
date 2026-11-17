@@ -24,7 +24,7 @@ pub enum CharacterClass {
 }
 
 impl CharacterClass {
-    /// Recognises a class path such as `GD_Assassin.Character.CharClass_Assassin` by its
+    /// Recognizes a class path such as `GD_Assassin.Character.CharClass_Assassin` by its
     /// last part.
     pub fn from_class_path(path: &str) -> Option<CharacterClass> {
         match path.rsplit('.').next()? {

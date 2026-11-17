@@ -14,7 +14,7 @@ use gamedata::{GameInstall, ItemRefs};
 use gamemesh::balances::weapon_balances;
 use gamemesh::material::{MaterialParameters, SkinFamily};
 use gamemesh::texture::Texture;
-use gamemesh::{fragment_names, Colouring, Facing, GestaltMesh, PictureError, Pictures, SkeletalMesh, Style, WeaponSource};
+use gamemesh::{fragment_names, Coloring, Facing, GestaltMesh, PictureError, Pictures, SkeletalMesh, Style, WeaponSource};
 use savekit::SaveDocument;
 
 const INFINITY: &str = "BL2(hwAAAADX0ACE5wRACiGT6cOQhYEQowHG/38JGBkw/v8rxACCgRED)";
@@ -367,9 +367,9 @@ fn a_code_becomes_a_png() {
     assert!(column_height(&image, 300) > column_height(&image, 100));
     assert!(column_height(&right, 100) > column_height(&right, 300));
 
-    // Plain and flat colouring need less, and still draw the same shape.
-    for colouring in [Colouring::Plain, Colouring::Flat] {
-        pictures.set_style(Style { colouring, ..Style::default() });
+    // Plain and flat coloring need less, and still draw the same shape.
+    for coloring in [Coloring::Plain, Coloring::Flat] {
+        pictures.set_style(Style { coloring, ..Style::default() });
         let other = pictures.weapon_image(&infinity(), 400, 200).unwrap();
         assert!((opaque_share(&other.rgba) - covered).abs() < 0.01);
     }
@@ -405,7 +405,7 @@ fn what_cannot_be_drawn_says_why() {
     assert_eq!(pictures.weapon_image(&with(|i| i.parts[2] = Some(0x1F7F0)), 64, 32), Err(PictureError::UnknownParts));
     // No part with a model at all.
     assert_eq!(pictures.weapon_image(&with(|i| i.parts = [Some(131_071); 11]), 64, 32), Err(PictureError::NothingToDraw));
-    // An unknown skin does not stop the picture; it is drawn in plain colours and says so.
+    // An unknown skin does not stop the picture; it is drawn in plain colors and says so.
     let image = pictures.weapon_image(&with(|i| i.parts[8] = Some(131_071)), 64, 32).unwrap();
     assert!(opaque_share(&image.rgba) > 0.1 && pictures.skin_problem().is_some());
     // A hybrid: a sniper rifle's barrel on a pistol. Every part is defined, but the pistol's
@@ -443,7 +443,7 @@ fn what_cannot_be_drawn_says_why() {
 #[test]
 fn every_balance_assembles_and_draws() {
     let (Some(pkg), Some(mut pictures)) = (package(), pictures()) else { return };
-    pictures.set_style(Style { colouring: Colouring::Plain, ..Style::default() });
+    pictures.set_style(Style { coloring: Coloring::Plain, ..Style::default() });
     let balances = weapon_balances(pkg);
     assert_eq!(balances.len(), 242);
     let (mut combinations, mut drawn) = (0, 0);
@@ -557,7 +557,7 @@ fn timings() {
     assert!(opened.as_secs() < 30);
 }
 
-/// The pattern layer: the common Jakobs, Vladof and Dahl skins name a full-colour pattern
+/// The pattern layer: the common Jakobs, Vladof and Dahl skins name a full-color pattern
 /// texture that reads from the texture cache, and drawing with it changes the picture.
 #[test]
 fn pattern_layers_of_common_skins() {
@@ -573,7 +573,7 @@ fn pattern_layers_of_common_skins() {
         let path = gamemesh::material::GunSkin::pattern_path(&params).unwrap_or_else(|| panic!("{name}: no pattern"));
         assert_eq!(path.rsplit('.').next(), Some(texture), "{name}");
         let mask = params.channel_mask("p_PatternChannel").unwrap();
-        // Full-colour patterns select R, G and B; the packed "_Comp" textures one channel.
+        // Full-color patterns select R, G and B; the packed "_Comp" textures one channel.
         assert_eq!(mask[..3].iter().all(|&on| on), !texture.ends_with("_Comp"), "{name}: {mask:?}");
         let texture = pictures.source().texture(path).unwrap_or_else(|| panic!("{name}: {path} was not read"));
         let mip = texture.mip_for(256).unwrap();
@@ -625,14 +625,14 @@ fn pattern_layers_of_common_skins() {
 }
 
 /// Of the drawn pixels, the share that is near white: high when a skin is read with the wrong
-/// layout and falls back to its white "rest" colour.
+/// layout and falls back to its white "rest" color.
 fn near_white_share(rgba: &[u8]) -> f32 {
     let drawn: Vec<&[u8; 4]> = rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).collect();
     drawn.iter().filter(|p| p[..3].iter().all(|&c| c > 215)).count() as f32 / drawn.len().max(1) as f32
 }
 
-/// Mean colour of the drawn pixels.
-fn mean_colour(rgba: &[u8]) -> [f32; 3] {
+/// Mean color of the drawn pixels.
+fn mean_color(rgba: &[u8]) -> [f32; 3] {
     let drawn: Vec<&[u8; 4]> = rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).collect();
     let n = drawn.len().max(1) as f32;
     [0, 1, 2].map(|c| drawn.iter().map(|p| f32::from(p[c])).sum::<f32>() / n)
@@ -649,10 +649,10 @@ fn skins_are_read_by_their_master_material() {
     assert_eq!(family("Item_ClassMods.Mat.Mati_ClassMod_Siren_Banshee"), SkinFamily::Item);
 }
 
-/// Shields, grenade mods and class mods are coloured by their skin, not washed out to white;
-/// relics glow in the colour their kind sets.
+/// Shields, grenade mods and class mods are colored by their skin, not washed out to white;
+/// relics glow in the color their kind sets.
 #[test]
-fn items_are_drawn_in_their_own_colours() {
+fn items_are_drawn_in_their_own_colors() {
     let Some(mut pictures) = pictures() else { return };
     let shield = pictures
         .source()
@@ -679,24 +679,24 @@ fn items_are_drawn_in_their_own_colours() {
         let white = near_white_share(&image.rgba);
         assert!(white < 0.35, "{what}: {:.0}% near white", white * 100.0);
     }
-    // Read with the gun layout, the class mod came out grey (saturation 0.06); in its own
-    // colours about 0.25.
+    // Read with the gun layout, the class mod came out gray (saturation 0.06); in its own
+    // colors about 0.25.
     let image = pictures.assembly_image(&class_mod, 400, 200).unwrap();
     assert!(saturation(&image.rgba) > 0.15, "class mod saturation {:.2}", saturation(&image.rgba));
 
-    // A relic has no skin part; it glows in the colour its body part sets, so the picture's
-    // weakest colour channel is the glow's.
+    // A relic has no skin part; it glows in the color its body part sets, so the picture's
+    // weakest color channel is the glow's.
     let relic = Pictures::decode(RELIC).unwrap();
     let assembly = pictures.source().assemble(&relic).unwrap();
     let glow = assembly.glow.expect("the relic's body sets a glow");
     assert!(assembly.material.is_none());
     let image = pictures.weapon_image(&relic, 400, 200).unwrap();
     assert_eq!(pictures.skin_problem(), None);
-    let mean = mean_colour(&image.rgba);
+    let mean = mean_color(&image.rgba);
     let weakest = |c: [f32; 3]| (0..3).min_by(|&a, &b| c[a].total_cmp(&c[b])).unwrap();
     assert_eq!(weakest(mean), weakest(glow), "glow {glow:?}, picture {mean:?}");
-    // Plain colouring still means plain.
-    pictures.set_style(Style { colouring: Colouring::Plain, ..Style::default() });
+    // Plain coloring still means plain.
+    pictures.set_style(Style { coloring: Coloring::Plain, ..Style::default() });
     assert_ne!(pictures.weapon_image(&relic, 400, 200).unwrap(), image);
 }
 
@@ -719,7 +719,7 @@ fn dlc_items_draw_when_installed() {
     }
 }
 
-/// Mean saturation (HSV) of the drawn pixels: 0 for greys.
+/// Mean saturation (HSV) of the drawn pixels: 0 for grays.
 fn saturation(rgba: &[u8]) -> f32 {
     let drawn: Vec<&[u8; 4]> = rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).collect();
     let of = |p: &&[u8; 4]| {

@@ -1,7 +1,7 @@
 # Borderlands 2 save file format (PC/Mac), clean-room description
 
 Status: derived from reading a reference editor (a Python BL2/TPS save editor) for this
-document only. This document contains no code from it. Where the reference's behaviour is
+document only. This document contains no code from it. Where the reference's behavior is
 odd or possibly wrong, that is called out. Items marked **UNSURE** are guesses or
 unverified; a consolidated list is at the end.
 
@@ -136,7 +136,7 @@ Reference decoder quirk: after the *first* instruction of the stream is a litera
 4 or more bytes, the reference decodes a following `t < 16` byte as a 2-byte M1 match.
 Standard LZO1X decodes it as the 3-byte `0x0800`-based M1 match. LZO1X-1 never emits that
 sequence, and it cannot happen in a literal-only stream, so it doesn't matter in practice.
-Implement the standard behaviour.
+Implement the standard behavior.
 
 ### 2.3 Literal-run-only encoder: compatibility notes
 
@@ -183,12 +183,12 @@ Everything in the WSG Huffman stream is **MSB-first**. Bit index `i` of the stre
 `7 − (i mod 8)` of byte `i / 8`, so bit 7 is the first bit of each byte. Multi-bit values
 (tree leaf bytes, codes) are written most-significant bit first.
 
-### 3.2 Tree serialisation
+### 3.2 Tree serialization
 
 Pre-order and recursive, starting at stream bit 0, which is WSG offset 19:
 
 - bit `1` → **leaf**: the next 8 bits (MSB-first) are the byte value.
-- bit `0` → **internal node**: serialised left child (code bit `0`), then right
+- bit `0` → **internal node**: serialized left child (code bit `0`), then right
   child (code bit `1`).
 
 There is no node count, length prefix or byte alignment. The symbol codes start at the
@@ -252,7 +252,7 @@ and only interprets the fields it needs:
 - Writer: fields are written **sorted by ascending field number**. Within a field, entries
   keep their original order. Varints are written in minimal form. Untouched nested
   messages are written back from their original bytes. Nested messages the editor
-  modified are re-serialised, with the same field sorting, from the parsed form.
+  modified are re-serialized, with the same field sorting, from the parsed form.
 - A field given a *list* of integers with wire type 0 is written as a single **packed**
   wire-type-2 entry (concatenated varints). This is how the currency array is written
   back.
@@ -284,7 +284,7 @@ passed through untouched.
 | 16 | active_fast_travel | L | yes | Strings | — |
 | 17 | last_fast_travel | L | no | String | — |
 | 18 | missions | L | yes | One message per playthrough, in order NVHM, TVHM, UVHM: `1` playthrough (V), `2` active mission (string), `3` mission data (repeated message: `1` name string, `2` status V, `3` is_from_dlc V, `4` dlc_id V, `5` bytes, `6` V, `7` bytes, `8`, `9`, `10` V, `11` level V) | `--copy-nvhm-missions`, `--reset doctors-orders` |
-| 19 | appearance | L | no | Message: `1` name (string), `2`/`3`/`4` colours (each a message `1` a, `2` r, `3` g, `4` b, all V) | `--name` |
+| 19 | appearance | L | no | Message: `1` name (string), `2`/`3`/`4` colors (each a message `1` a, `2` r, `3` g, `4` b, all V) | `--name` |
 | 20 | save_game_id | V | no | Save slot id | `--save-game-id` |
 | 21 | mission_number | V | no | — | — |
 | 23 | unlocks | L | no | Byte array; each byte is an unlock id. `0x01` = Creature Slaughterdome. | `--unlock slaughterdome` |
@@ -310,7 +310,7 @@ passed through untouched.
 Notes:
 
 - "Mark" values: the reference only ever writes `1` on import. **UNSURE**: from general
-  community knowledge, 0 = trash, 1 = standard, 2 = favourite.
+  community knowledge, 0 = trash, 1 = standard, 2 = favorite.
 - Strings are length-delimited bytes. The reference *writes* strings it sets (the name,
   challenge names, ammo resource names) as **Latin-1**, and reads explored-area names as
   UTF-8. **UNSURE**: the game's actual string encoding. Plain ASCII is safe.
@@ -381,8 +381,8 @@ re-wraps the save even if nothing changed: a new Huffman tree, a new LZO stream,
 top-level fields sorted.
 
 ### 5.1 `--name NAME`
-Parses field 19 and sets its subfield 1 to NAME (written as Latin-1 bytes). Colours and
-unknown subfields are preserved, and field 19 is re-serialised with sorted subfields.
+Parses field 19 and sets its subfield 1 to NAME (written as Latin-1 bytes). Colors and
+unknown subfields are preserved, and field 19 is re-serialized with sorted subfields.
 The name must be non-empty.
 
 ### 5.2 `--save-game-id N`
@@ -414,7 +414,7 @@ negatives).
   - If it is absent (blob too short), skip the entry.
   - If `--forceitemlevels` is set, or grade_index > 1: set **both** `grade_index` ([4])
     and `game_stage` ([5]) to the target level. Then re-encode with the **same key**
-    (checksum recomputed) and re-serialise the submessage.
+    (checksum recomputed) and re-serialize the submessage.
   - Otherwise (level 0 or 1, not forced), leave the entry alone.
 - Width is 7 bits each, so the maximum is 127. The reference does not mask the value
   (see Gotchas).
@@ -475,7 +475,7 @@ present in one, `0x01` is appended to it. Each field is written as a single wire
 
   2. For each field-11 entry whose resource string matches a row: set subfield 4
      (level) = `lvl` and subfield 3 (amount) = `max` as a float32 (fixed32 LE bits).
-     Re-serialise with sorted subfields; unknown subfields are kept. Unmatched
+     Re-serialize with sorted subfields; unknown subfields are kept. Unmatched
      resources only produce an error message.
   3. For each ammo type with no field-11 entry, append a new entry
      `{1: resource, 2: pool, 3: float amount, 4: level}`.
@@ -493,7 +493,7 @@ OP level lives in a "virtual item" in field 53.
 - Write: `v = −(4 | (clamp(N, 0, 0x7FFFFF) << 8))` as int64, stored as its uint64 two's
   complement in a (10-byte) varint.
 - Find the first field-53 entry that has subfield 2, is a virtual item, and has id 4.
-  Replace its subfield 2 with v and re-serialise the entry.
+  Replace its subfield 2 with v and re-serialize the entry.
 - If none is found, append a new field-53 entry `{1: B, 2: v, 3: 0, 4: 0}`. B is this
   fixed 40-byte blob (key 0, so not obfuscated):
 
@@ -532,8 +532,8 @@ For each record in the table with `total_value ≥ 2,000,000,000`, set
 - `doctors-orders`: go through the field-18 entries from last to first (UVHM → TVHM →
   NVHM). In each one, parse it, and if it has subfield 3, drop every subfield-3 entry
   whose raw bytes contain the ASCII substring `GD_Z2_DoctorsOrders.M_DoctorsOrders`. Then
-  re-serialise. Stop after the first playthrough where something was removed.
-  (Playthroughs visited before that are re-serialised with sorted fields but otherwise
+  re-serialize. Stop after the first playthrough where something was removed.
+  (Playthroughs visited before that are re-serialized with sorted fields but otherwise
   unchanged.)
 
 ### 5.18 `--print-unexplored-levels` (read-only)
@@ -701,7 +701,7 @@ Variable length:
   `ceil(bits / 8)`. The reference sets the unused high bits of the final byte to **1**.
   Both externally produced samples above have those bits as **0**. Either is
   self-consistent, since the checksum covers them. **UNSURE** whether the game cares.
-  To minimise differences, keep the original trailing bits when re-encoding an
+  To minimize differences, keep the original trailing bits when re-encoding an
   existing item. For new items, use 0, as the game samples do.
 - Item level as displayed in game = `grade_index`. `--itemlevels` sets both
   `grade_index` and `game_stage`.
@@ -723,7 +723,7 @@ Variable length:
 the blob (`grade_index`), so no table is needed for it. Showing **manufacturer, balance
 (item name/rarity), type or part names** needs an extra dataset that maps
 `(lib, asset)` indices to object names. In other editors this comes from the game's
-asset library manifest, organised per set id and per category. It has to come from a
+asset library manifest, organized per set id and per category. It has to come from a
 source other than this reference. **UNSURE**: the exact structure of that manifest; it
 is out of scope here.
 
@@ -788,7 +788,7 @@ is out of scope here.
 8. Meaning of currency index 3.
 9. Units/types of fields 25 (time_played) and 26 (save_timestamp).
 10. Field 34 is probably a GUID.
-11. Item/weapon "mark" values (0 trash / 1 standard / 2 favourite) come from community knowledge, not the reference.
+11. Item/weapon "mark" values (0 trash / 1 standard / 2 favorite) come from community knowledge, not the reference.
 12. The game's string encoding (the reference writes Latin-1 and reads field 46 as UTF-8).
 13. Meaning of field 13.3 (weapon_slots_shown).
 14. Virtual item ids 1, 2, 3, 5 (only id 4 = OP level is used in code).

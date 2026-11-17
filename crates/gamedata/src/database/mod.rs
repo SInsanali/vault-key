@@ -1,5 +1,5 @@
 //! The item database built from the game's packages: asset tables per set, the definitions
-//! those tables refer to, and the rarity colour table.
+//! those tables refer to, and the rarity color table.
 
 mod codec;
 mod item_info;
@@ -108,7 +108,7 @@ impl AssetCategory {
     }
 }
 
-/// A colour as the game stores it. Alpha is reported as stored; it is not a "hidden" marker.
+/// A color as the game stores it. Alpha is reported as stored; it is not a "hidden" marker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Rgba {
     pub r: u8,
@@ -294,7 +294,7 @@ pub struct ItemDatabase {
 
 impl ItemDatabase {
     /// Version 3 added the stat data; version 4 the card lines (presentation details,
-    /// card attributes, conditional initialisation, damage types).
+    /// card attributes, conditional initialization, damage types).
     pub const SCHEMA_VERSION: u32 = 4;
 
     /// The policy [`ItemDatabase::path`], [`ItemDatabase::info`] and [`ItemDatabase::gear_class`]

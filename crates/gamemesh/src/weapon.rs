@@ -62,7 +62,7 @@ pub struct Assembly {
     pub unresolved_slots: Vec<usize>,
     /// A shield, grenade mod or relic rather than a weapon. Their models face the other way.
     pub is_item: bool,
-    /// The colour a part sets the item glowing in (`p_EmissiveColor`): a relic's kind.
+    /// The color a part sets the item glowing in (`p_EmissiveColor`): a relic's kind.
     pub glow: Option<[f32; 3]>,
 }
 
@@ -79,7 +79,7 @@ pub struct PartLook {
     pub fragments: Vec<String>,
     /// The material instance a material part names.
     pub material: Option<String>,
-    /// `p_EmissiveColor` from the part's `MaterialVectorParameterValues`: the colour a relic
+    /// `p_EmissiveColor` from the part's `MaterialVectorParameterValues`: the color a relic
     /// body part sets its relic glowing in.
     pub glow: Option<[f32; 3]>,
 }

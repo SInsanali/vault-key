@@ -1,7 +1,7 @@
 //! The cache file's format: a compact little-endian encoding of an [`ItemDatabase`].
 //!
 //! `GKDB`, the schema version, the fingerprint, the sets, the objects (sorted by path), the
-//! colour rows, the skipped packages, the stat data (each map sorted by path), then `END!`.
+//! color rows, the skipped packages, the stat data (each map sorted by path), then `END!`.
 //! Strings are a u32 byte length plus UTF-8.
 //! Decoding is bounds-checked like package parsing: a damaged file gives an error, never a
 //! panic or a huge allocation.
@@ -275,7 +275,7 @@ fn index_of<T: PartialEq>(all: &[T], value: &T) -> u8 {
     all.iter().position(|v| v == value).unwrap_or(0) as u8
 }
 
-/// The stat data: definitions, attributes and initialisation definitions sorted by path, then
+/// The stat data: definitions, attributes and initialization definitions sorted by path, then
 /// the presentation lists.
 impl Writer {
     fn f32(&mut self, v: f32) {

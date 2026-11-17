@@ -221,7 +221,7 @@ fn known_items() -> Vec<Known> {
             Weapon(Pistol),
             Gear,
         ),
-        // 4: the intro ECHO (BD_AssassinIntroEcho). Its colour row is white with alpha 0.
+        // 4: the intro ECHO (BD_AssassinIntroEcho). Its color row is white with alpha 0.
         row(
             "BL2(BwAAAABsWgADYgaQ4/8AwA==)",
             item(25091, 116739, 2047, &[]),
@@ -713,7 +713,7 @@ fn base_library_shapes() {
 }
 
 #[test]
-fn rarity_values_and_colours() {
+fn rarity_values_and_colors() {
     let Some(g) = game() else { return };
     let db = &g.base_db;
     let rarity = |path: &str| db.object(path).and_then(ObjectInfo::rarity);
@@ -771,9 +771,9 @@ fn rarity_values_and_colours() {
     assert_eq!(g.db.rarity_colors, db.rarity_colors);
 }
 
-/// Ledger rulings (b) and (c) against the game's own colour table.
+/// Ledger rulings (b) and (c) against the game's own color table.
 #[test]
-fn game_colour_table_edges() {
+fn game_color_table_edges() {
     let Some(g) = game() else { return };
     let db = &g.base_db;
     let at = |level| db.rarity_for_level(Some(level));
@@ -881,7 +881,7 @@ fn known_items_match_expected() {
             assert_eq!(
                 hex(info.rarity.color).as_deref(),
                 Some(row.hex),
-                "row {n} colour"
+                "row {n} color"
             );
             assert_eq!(
                 info.manufacturer.as_deref(),
@@ -1284,7 +1284,7 @@ fn dlc_rarity_census() {
         [1, 2, 3, 4, 5, 10, 181, 497, 500, 501, 502, 503, 504, 506]
     );
     assert!(unresolvable.is_empty(), "{unresolvable:?}");
-    // None falls outside the colour table or in its filler row.
+    // None falls outside the color table or in its filler row.
     for value in by_value.keys() {
         assert_ne!(db.rarity_for_level(Some(*value)).color, None, "{value}");
     }

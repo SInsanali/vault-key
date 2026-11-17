@@ -167,7 +167,7 @@ fn corrupted_wsg_blobs_never_panic() {
         for round in 0..3_000 {
             let mut bad = wsg.clone();
             if round % 2 == 0 {
-                // Aim at the header and the serialised Huffman tree.
+                // Aim at the header and the serialized Huffman tree.
                 let at = rng.below(bad.len().min(400));
                 bad[at] = rng.next() as u8;
             } else {

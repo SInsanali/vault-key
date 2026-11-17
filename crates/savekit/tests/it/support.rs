@@ -111,7 +111,7 @@ pub fn level_20_item() -> ItemBlob {
 /// also has items the level-1 save lacks: an equipped shield, a level-20 item, a level-50
 /// equipped weapon and a weapon in the bank.
 pub fn synthetic_doc() -> SaveDocument {
-    let colour = |r: u64| sub(vec![ProtoField::varint(1, 255), ProtoField::varint(2, r), ProtoField::varint(3, 9)]);
+    let color = |r: u64| sub(vec![ProtoField::varint(1, 255), ProtoField::varint(2, r), ProtoField::varint(3, 9)]);
     let fields = vec![
         ProtoField::bytes(field::CLASS, CLASS_PATH),
         ProtoField::varint(field::LEVEL, 5),
@@ -128,9 +128,9 @@ pub fn synthetic_doc() -> SaveDocument {
             field::APPEARANCE,
             sub(vec![
                 ProtoField::bytes(1, "Gaige"),
-                ProtoField::new(2, colour(1)),
-                ProtoField::new(3, colour(2)),
-                ProtoField::new(4, colour(3)),
+                ProtoField::new(2, color(1)),
+                ProtoField::new(3, color(2)),
+                ProtoField::new(4, color(3)),
             ]),
         ),
         ProtoField::varint(field::SAVE_GAME_ID, 3),

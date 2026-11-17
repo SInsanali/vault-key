@@ -76,8 +76,8 @@ fn sample() -> Pkg {
     let body = p.body(&[], &[]);
     let master = p.export("Material", 0, "Master", body);
     let scalar = [p.name_at("ParameterName", 0, "p_HighlightsIntensity"), p.float("ParameterValue", 3.0)].concat();
-    let colour: Vec<u8> = [0.5f32, 2.0, 0.25, 1.0].iter().flat_map(|v| v.to_le_bytes()).collect();
-    let vector = [p.name_at("ParameterName", 0, "p_AColorMidtone"), p.raw_struct("ParameterValue", "LinearColor", &colour)].concat();
+    let color: Vec<u8> = [0.5f32, 2.0, 0.25, 1.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+    let vector = [p.name_at("ParameterName", 0, "p_AColorMidtone"), p.raw_struct("ParameterValue", "LinearColor", &color)].concat();
     let masks = [p.name_at("ParameterName", 0, "p_Masks"), p.object("ParameterValue", texture)].concat();
     let diffuse = [p.name_at("ParameterName", 0, "P_Diffuse"), p.object("ParameterValue", texture)].concat();
     let pattern = [p.name_at("ParameterName", 0, "p_Pattern"), p.object("ParameterValue", texture)].concat();

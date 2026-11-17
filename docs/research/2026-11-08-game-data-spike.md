@@ -76,9 +76,9 @@ Install examined: macOS Steam build,
 | Grenade `Damage` | 8 |
 
 - `GD_Globals.General.Globals.RarityLevelColors` is the game's own table that maps rarity
-  level to colour and to the `EItemRarity` enum. It is readable:
+  level to color and to the `EItemRarity` enum. It is readable:
 
-| Level | `RarityRating` | Colour (RGB) |
+| Level | `RarityRating` | Color (RGB) |
 |---|---|---|
 | 1 | Common | #FFFFFF |
 | 2 | Uncommon | #3DD20B |
@@ -88,7 +88,7 @@ Install examined: macOS Steam build,
 | 501 | Seraph | — |
 | 506 | Rainbow | — |
 
-  Colour is a UE3 `FColor` stored as B,G,R,A bytes.
+  Color is a UE3 `FColor` stored as B,G,R,A bytes.
 - **Not verified:** how the game combines the parts' `Rarity` values into the item's
   rarity level. My guess is that it adds them up: `VeryRare_Alien` = 2, which looks like
   an add-on to a body's level. Check this against known items before relying on it.
@@ -128,7 +128,7 @@ Install examined: macOS Steam build,
 
 | Object | Format | Content |
 |---|---|---|
-| `SharedWillowInventory.SharedWillowInventory_I7` | 1024×1024 DXT5 | Inventory atlas: the grey, blue and gold item-card frames plus small inventory icons |
+| `SharedWillowInventory.SharedWillowInventory_I7` | 1024×1024 DXT5 | Inventory atlas: the gray, blue and gold item-card frames plus small inventory icons |
 | `SharedWillowInventory.SharedWillowInventory_ID` | 180×68 DXT5 | Blue item-slot frame |
 | `SharedWillowInventory.SharedWillowInventory_I11` | 152×44 DXT5 | White frame, which the game tints at runtime |
 | `Common_GunMaterials.Logos.Logo_Bandit` | 256×256 DXT1 | Top two mips are in `Textures.tfc` (LZO); the rest are inline. This proves the `.tfc` path works too. It is a gun-skin mask, not UI art |
@@ -234,7 +234,7 @@ need about 120 lines of your own decoder. The save code already needs LZO.
 
 - **Nothing blocked names, rarity or bitmap UI.**
 - **Rarity combination rule not confirmed.** Which parts count, and whether they are summed,
-  max'd or overridden. The colour table is confirmed.
+  max'd or overridden. The color table is confirmed.
 - **Name assembly rules not implemented:** prefix + title choice by `Priority`, and unique
   vs generic titles. The saved item stores prefix and title part slots directly (save-format
   doc §6.6), so for display we probably only need to look up those two parts' `PartName`.
@@ -275,7 +275,7 @@ need about 120 lines of your own decoder. The save code already needs LZO.
 **Rule adopted (H-sum):** an item's rarity level is the item type's `BaseRarity` plus the
 `Rarity` of every non-empty part slot. Part slots count only for weapons and for the gear item
 classes `ShieldDefinition`, `GrenadeModDefinition`, `ClassModDefinition` and `ArtifactDefinition`.
-A slot is empty when it is absent or all-ones (131071 for weapons, 65535 for items). The colour is
+A slot is empty when it is absent or all-ones (131071 for weapons, 65535 for items). The color is
 the `RarityLevelColors` row whose `MinLevel…MaxLevel` contains the level. Any unresolvable input,
 or a sum that is not an exact integer, makes the level unknown. Implemented as `RarityRule.level`,
 with the per-category slot rule in `RarityRule.countsPartSlots` / `RarityRule.contributions`
@@ -284,13 +284,13 @@ with the per-category slot rule in `RarityRule.countsPartSlots` / `RarityRule.co
 **Status: strongly supported, not yet confirmed in game.** The census below and game-knowledge
 examples (Phoenix 4 + 4 = 8, Fastball, Blood of Terramorphous) favour sum, but the known fixture
 items cannot tell sum from max: each has at most one non-zero contribution except Righteous
-Infinity (4 + 5), whose orange colour max (5, also `#FFB400`) gives as well. Only `Startup.upk` was
+Infinity (4 + 5), whose orange color max (5, also `#FFB400`) gives as well. Only `Startup.upk` was
 censused; the DLC startup packages were not. The in-game check (Task 11) is still pending.
 
-**Display (Task 7):** a level gets an unknown colour (renders neutral) only when no row contains it
+**Display (Task 7):** a level gets an unknown color (renders neutral) only when no row contains it
 (e.g. 11) or its row is exactly `RGBA(0,0,0,0)`, the transparent-black filler (12…170). Alpha is not
 an "unused" marker: rows 0, 176…502 and 504 also have alpha 0, and Seraph (501, #FF9AB8) is shown
-pink in game, so those colours are used as known (alpha reported as stored). Level 6 is labelled
+pink in game, so those colors are used as known (alpha reported as stored). Level 6 is labeled
 e-tech from the level itself, since its row is rated `RARITY_VeryRare`.
 
 **Census (every type and part in `Startup.upk`'s asset tables):**
@@ -304,7 +304,7 @@ e-tech from the level itself, since its row is rated `RARITY_VeryRare`.
 - All 15 parts whose rarity is `ItemRarity4_VeryRare_Alien` (value 2) are weapon barrels with
   `Alien` in their path, so a very-rare body (4) plus an alien barrel (2) gives the e-tech row.
 
-**Why sum and not max:** max colours every known item correctly too, but it can never produce the
+**Why sum and not max:** max colors every known item correctly too, but it can never produce the
 e-tech row (or any legendary level above 5), so it is rejected. The game data also reads as designed
 for summing:
 - Legendary grenades: type 5 plus a damage part. Fastball's balance allows only `Damage_Grade3…7`
@@ -315,13 +315,13 @@ for summing:
 
 **Known items:** all 16 `KnownItems` rows (2 README codes, the Basic Repeater, the intro ECHO, and
 12 items from Sam's main character), plus a constructed Thunderball Fists (body 4 + barrel 5 = 9 →
-#FFB400), match their expected level and colour row. Every non-virtual item in the three local
+#FFB400), match their expected level and color row. Every non-virtual item in the three local
 fixture saves computes a known level. These items are consistent with sum but do not distinguish it
 from max (see Status above).
 
-**Open (in-game, Task 11):** confirm a summed colour in game: an e-tech (6) or a legendary (7…10)
+**Open (in-game, Task 11):** confirm a summed color in game: an e-tech (6) or a legendary (7…10)
 item must show #CA00A8 or #FFB400. Shields to look at if one turns up: the Deadly Bloom's material
 is named `Material5_Legendary_…` but carries 4 and its title carries nothing, so both sum and max
 give 4 (very rare, purple). The Phoenix shield sums to 8 (legendary). The Seraph row (501, #FF9AB8) has alpha 0
-but Seraph items show pink in game, so it is treated as a known colour; Task 10 (DLC sets) can
+but Seraph items show pink in game, so it is treated as a known color; Task 10 (DLC sets) can
 confirm with a real Seraph item.

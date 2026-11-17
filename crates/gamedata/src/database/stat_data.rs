@@ -1,5 +1,5 @@
 //! The definitions an item card's numbers are computed from, as extracted from the game's
-//! packages: each type's and part's attribute effects, the attribute and initialisation
+//! packages: each type's and part's attribute effects, the attribute and initialization
 //! definitions those refer to, and the presentation rules the card applies.
 //!
 //! These mirror the game's own structures (research doc `2026-11-09-item-stats.md`):
@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use super::Rgba;
 
 /// An `AttributeInitializationData` struct: a number given as a constant, an attribute's
-/// value, or an initialisation definition's result, times a scale.
+/// value, or an initialization definition's result, times a scale.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValueData {
     /// `BaseValueConstant`.
@@ -152,7 +152,7 @@ pub struct UiStat {
     pub just_number: bool,
 }
 
-/// A fixed line of text on the card (red flavour text and the like), from a
+/// A fixed line of text on the card (red flavor text and the like), from a
 /// `CustomPresentations` entry that shows no number.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CardText {
@@ -165,7 +165,7 @@ pub struct CardText {
 }
 
 /// What a `WeaponTypeDefinition` gives a weapon before any modifier, by the name of the weapon
-/// property it initialises (`WillowWeapon.CalculateWeaponBaseValues`).
+/// property it initializes (`WillowWeapon.CalculateWeaponBaseValues`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct WeaponBase {
     /// `ClipSize`.
@@ -253,7 +253,7 @@ pub enum AttributeSource {
     Unsupported(String),
 }
 
-/// `EBaseValueMode`: what an initialisation definition does with the value it is given.
+/// `EBaseValueMode`: what an initialization definition does with the value it is given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BaseValueMode {
     Sets,
@@ -360,7 +360,7 @@ pub struct Presentation {
     /// `bBiggerIsBetter`.
     pub bigger_is_better: bool,
     pub sign: SignStyle,
-    /// `TextColor` when `bEnableTextColor`, as the card colours the line.
+    /// `TextColor` when `bEnableTextColor`, as the card colors the line.
     pub color: Option<Rgba>,
     /// `bIncludePrefixInTranslation` and `bIncludeSuffixInTranslation`.
     pub include_prefix: bool,

@@ -26,7 +26,7 @@ pub struct Sample {
     pub normal: [f32; 3],
 }
 
-/// Decides the colour of each visible point. Outlines are drawn over the result.
+/// Decides the color of each visible point. Outlines are drawn over the result.
 pub trait Shader {
     fn shade(&self, sample: &Sample) -> [u8; 3];
 }
@@ -34,7 +34,7 @@ pub trait Shader {
 /// Brightness of the three light bands, lit to shadow.
 pub const BAND_BRIGHTNESS: [f32; 3] = [1.0, 0.80, 0.58];
 
-/// Flat colour per group from a palette, darkened by light band.
+/// Flat color per group from a palette, darkened by light band.
 pub struct PaletteShader<'a>(pub &'a [[u8; 3]]);
 
 impl Shader for PaletteShader<'_> {
@@ -47,7 +47,7 @@ impl Shader for PaletteShader<'_> {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Scene {
     pub triangles: Vec<Triangle>,
-    /// Base colour of each group, as RGB.
+    /// Base color of each group, as RGB.
     pub palette: Vec<[u8; 3]>,
 }
 
@@ -66,9 +66,9 @@ pub struct View {
     pub margin: f32,
     /// Samples per pixel along each axis.
     pub supersample: u32,
-    /// Background colour; `None` leaves the background transparent.
+    /// Background color; `None` leaves the background transparent.
     pub background: Option<[u8; 3]>,
-    /// Ink colour for outlines.
+    /// Ink color for outlines.
     pub ink: [u8; 3],
     /// Outline width in output pixels. 0 draws no outlines.
     pub line_width: f32,
@@ -161,7 +161,7 @@ pub fn render(scene: &Scene, view: &View) -> Image {
     render_with(scene, view, &PaletteShader(&scene.palette))
 }
 
-/// Draws the scene, asking `shader` for the colour of every visible point.
+/// Draws the scene, asking `shader` for the color of every visible point.
 pub fn render_with(scene: &Scene, view: &View, shader: &dyn Shader) -> Image {
     let ss = view.supersample.clamp(1, 8) as usize;
     let (out_w, out_h) = (view.width.clamp(1, MAX_SIDE) as usize, view.height.clamp(1, MAX_SIDE) as usize);
@@ -200,10 +200,10 @@ pub fn render_with(scene: &Scene, view: &View, shader: &dyn Shader) -> Image {
         let margin = view.margin.clamp(0.0, 0.45);
         let span = [(hi[0] - lo[0]).max(1e-6), (hi[1] - lo[1]).max(1e-6)];
         let zoom = (w as f32 * (1.0 - 2.0 * margin) / span[0]).min(h as f32 * (1.0 - 2.0 * margin) / span[1]);
-        let centre = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0];
+        let center = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0];
         let to_screen = |p: V3| -> V3 {
             let q = project(p);
-            [w as f32 / 2.0 + (q[0] - centre[0]) * zoom, h as f32 / 2.0 - (q[1] - centre[1]) * zoom, q[2]]
+            [w as f32 / 2.0 + (q[0] - center[0]) * zoom, h as f32 / 2.0 - (q[1] - center[1]) * zoom, q[2]]
         };
 
         for t in scene.triangles.iter().filter(|t| is_finite(t)) {
@@ -247,7 +247,7 @@ pub fn render_with(scene: &Scene, view: &View, shader: &dyn Shader) -> Image {
 
     // Shade: bands of a single directional light from the upper left, in front.
     let light = normalize(add(add(scale(right, -0.35), scale(up, 0.75)), scale(toward, 0.55)));
-    let mut colour = vec![[0u8; 4]; w * h];
+    let mut color = vec![[0u8; 4]; w * h];
     for at in 0..w * h {
         if group[at] == EMPTY {
             continue;
@@ -260,10 +260,10 @@ pub fn render_with(scene: &Scene, view: &View, shader: &dyn Shader) -> Image {
         let diffuse = dot(n, light);
         let band = BAND_THRESHOLDS.iter().position(|&threshold| diffuse > threshold).unwrap_or(2);
         let c = shader.shade(&Sample { group: group[at], uv: uv[at], light: diffuse, band, normal: n });
-        colour[at] = [c[0], c[1], c[2], 255];
+        color[at] = [c[0], c[1], c[2], 255];
     }
 
-    // Ink: a sample is inked when a neighbour a line-width away is across an edge.
+    // Ink: a sample is inked when a neighbor a line-width away is across an edge.
     if view.line_width > 0.0 {
         let reach = ((view.line_width * ss as f32) / 2.0).round().max(1.0) as isize;
         // A depth step counts as an edge above this many model units.
@@ -304,7 +304,7 @@ pub fn render_with(scene: &Scene, view: &View, shader: &dyn Shader) -> Image {
         }
         for at in 0..w * h {
             if inked[at] {
-                colour[at] = if group[at] == EMPTY { outside } else { ink };
+                color[at] = if group[at] == EMPTY { outside } else { ink };
             }
         }
     }
@@ -318,7 +318,7 @@ pub fn render_with(scene: &Scene, view: &View, shader: &dyn Shader) -> Image {
             let mut sum = [0f32; 4];
             for sy in 0..ss {
                 for sx in 0..ss {
-                    let c = colour[(oy * ss + sy) * w + ox * ss + sx];
+                    let c = color[(oy * ss + sy) * w + ox * ss + sx];
                     let alpha = f32::from(c[3]);
                     sum[0] += f32::from(c[0]) * alpha;
                     sum[1] += f32::from(c[1]) * alpha;
@@ -387,7 +387,7 @@ mod tests {
         assert_eq!(pixel(&image, 57, 27)[3], 255);
         assert_eq!(pixel(&image, 17, 20)[3], 0);
         assert_eq!(pixel(&image, 40, 7)[3], 0);
-        // One flat colour: the base colour times one of the light bands.
+        // One flat color: the base color times one of the light bands.
         let c = pixel(&image, 40, 20);
         assert!(BAND_BRIGHTNESS.iter().any(|b| c[0] == (200.0 * b).round() as u8), "{c:?}");
         assert_eq!(pixel(&image, 30, 15), c);

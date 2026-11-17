@@ -10,7 +10,7 @@
 #   scripts/app-selftest            build, then test the built-in UI
 #   scripts/app-selftest --live     serve the UI from the repo's ui/ folder (no rebuild needed for UI edits)
 #   scripts/app-selftest --keep     leave the sandbox in place afterwards (it is always kept on a failure)
-#   scripts/app-selftest --release  test the optimised build (the one to hand out)
+#   scripts/app-selftest --release  test the optimized build (the one to hand out)
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 fixture="$repo/fixtures/local/win-throwaway-Save0001.sav"

@@ -2,8 +2,8 @@
 # One-time setup of the Windows Rust toolchain that builds Vault Key, run from WSL.
 #
 # Why this exists: the app window uses the `windows` crates, which need a `dlltool` to make
-# import libraries. Neither of Rust's GNU-flavoured Windows toolchains ships a usable one, and
-# this project avoids needing Visual Studio. The LLVM-flavoured toolchain (gnullvm) links with
+# import libraries. Neither of Rust's GNU-flavored Windows toolchains ships a usable one, and
+# this project avoids needing Visual Studio. The LLVM-flavored toolchain (gnullvm) links with
 # its bundled `rust-lld`, and LLVM's `llvm-ar` acts as `llvm-dlltool` when run under that name.
 #
 # What it does (all per-user, nothing system-wide):

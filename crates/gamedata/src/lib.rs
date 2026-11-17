@@ -1,6 +1,6 @@
 //! GameData: reads the user's own installed Borderlands 2 packages (UE3 `.upk`), read-only, and
 //! turns the numbers stored in a save's items into what the game shows: display name, rarity
-//! level, tier and colour, manufacturer, category, and gear versus not gear.
+//! level, tier and color, manufacturer, category, and gear versus not gear.
 //!
 //! The layers, bottom up:
 //! - [`package`]: the LZO wrapper (both layouts), package tables, tagged properties.

@@ -6,9 +6,9 @@ use crate::render::{Scene, Triangle};
 use crate::skeletal::MAX_TRIANGLES;
 use crate::weapon::Assembly;
 
-/// Placeholder colours per part slot (body, grip, barrel, sight, stock, elemental, accessory 1,
-/// accessory 2), used until colours come from the weapon's material.
-pub const SLOT_COLOURS: [[u8; 3]; 8] = [
+/// Placeholder colors per part slot (body, grip, barrel, sight, stock, elemental, accessory 1,
+/// accessory 2), used until colors come from the weapon's material.
+pub const SLOT_COLORS: [[u8; 3]; 8] = [
     [182, 184, 192],
     [128, 112, 100],
     [156, 160, 172],
@@ -44,7 +44,7 @@ fn push_run(scene: &mut Scene, gestalt: &GestaltMesh, fragment: &Fragment, group
     }
 }
 
-/// The triangles of an assembled weapon, one colour group per part slot. Also returns the
+/// The triangles of an assembled weapon, one color group per part slot. Also returns the
 /// fragment names the gestalt mesh does not have.
 ///
 /// Parts may name the same fragment, and a name may have several runs, so the scene can hold
@@ -62,10 +62,10 @@ pub fn weapon_scene(gestalt: &GestaltMesh, assembly: &Assembly) -> Result<(Scene
             gestalt.definition_path
         )));
     }
-    let mut scene = Scene { triangles: Vec::new(), palette: SLOT_COLOURS.to_vec() };
+    let mut scene = Scene { triangles: Vec::new(), palette: SLOT_COLORS.to_vec() };
     let mut missing = Vec::new();
     for (slot, name) in assembly.fragments() {
-        let group = slot.min(SLOT_COLOURS.len() - 1) as u16;
+        let group = slot.min(SLOT_COLORS.len() - 1) as u16;
         if !push_fragment(&mut scene, gestalt, name, group) {
             missing.push(name.to_string());
         }
@@ -73,11 +73,11 @@ pub fn weapon_scene(gestalt: &GestaltMesh, assembly: &Assembly) -> Result<(Scene
     Ok((scene, missing))
 }
 
-/// Every fragment of a gestalt mesh at once, each in its own colour group.
+/// Every fragment of a gestalt mesh at once, each in its own color group.
 pub fn whole_gestalt_scene(gestalt: &GestaltMesh) -> Scene {
     let mut scene = Scene::default();
     for (i, fragment) in gestalt.fragments.iter().enumerate() {
-        // Spread hues around the colour wheel so neighbouring parts differ.
+        // Spread hues around the color wheel so neighboring parts differ.
         let hue = (i as f32 * 0.618_034).fract() * 6.0;
         let x = 1.0 - (hue % 2.0 - 1.0).abs();
         let (r, g, b) = match hue as u32 {

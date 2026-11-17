@@ -821,7 +821,7 @@ fn moving_to_the_bank_and_back_keeps_the_item_byte_for_byte() {
 #[test]
 fn moving_an_item_moves_up_the_ones_after_it() {
     let mut doc = synthetic_doc();
-    // 53:2 is a backpack item with a stack of 3 and a favourite star; 53:3 to 53:5 are virtual.
+    // 53:2 is a backpack item with a stack of 3 and a favorite star; 53:3 to 53:5 are virtual.
     let before = by_ref(&doc);
     let in_bank = doc.move_item("53:2".parse().unwrap(), true).unwrap();
     assert_eq!(in_bank, EntryRef::new(field::BANK, 1));
